@@ -45,16 +45,8 @@ import {
   YAxis,
 } from 'recharts';
 import { api, setAuthToken } from './api';
-import type {
-  Asset,
-  AveragesResponse,
-  AuthUser,
-  Borrowing,
-  Expense,
-  HistoryResponse,
-  Income,
-  Loan,
-} from './api';
+import { useStore } from './store';
+import type { Asset } from './api';
 
 type Page = 'dashboard' | 'activity' | 'accounts' | 'debts' | 'insights' | 'profile';
 type Modal = 'asset' | 'income' | 'expense' | 'loan' | 'borrowing' | null;
@@ -185,14 +177,14 @@ function ChartTooltip({ active, payload, label, visible }: { active?: boolean; p
 }
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
-    try {
-      const saved = localStorage.getItem('user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const {
+    currentUser, loading, error,
+    assets, loans, borrowings, incomes, expenses,
+    historyData, averagesData,
+    setCurrentUser, setLoading, setError,
+    loadOverview, loadHistory, loadAverages, logout
+  } = useStore();
+
   const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
   const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
@@ -204,16 +196,6 @@ export default function App() {
   const [showBalances, setShowBalances] = useState(() => localStorage.getItem('showBalances') !== 'false');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [borrowings, setBorrowings] = useState<Borrowing[]>([]);
-  const [incomes, setIncomes] = useState<Income[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [historyData, setHistoryData] = useState<HistoryResponse | null>(null);
-  const [averagesData, setAveragesData] = useState<AveragesResponse | null>(null);
 
   const [modal, setModal] = useState<Modal>(null);
   const [assetDraft, setAssetDraft] = useState({ id: '', name: '', type: 'bank' as Asset['type'], balance: '' });
@@ -237,74 +219,32 @@ export default function App() {
   const [profileName, setProfileName] = useState(() => localStorage.getItem('profileName') || currentUser?.name || '');
   const [profileMessage, setProfileMessage] = useState('');
 
-  const loadOverview = useCallback(async () => {
-    if (!currentUser) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [nextAssets, nextLoans, nextBorrowings, nextIncomes, nextExpenses] = await Promise.all([
-        api.getAssets(),
-        api.getLoans(),
-        api.getBorrowings(),
-        api.getIncome(),
-        api.getExpenses(),
-      ]);
-      setAssets(nextAssets);
-      setLoans(nextLoans);
-      setBorrowings(nextBorrowings);
-      setIncomes(nextIncomes);
-      setExpenses(nextExpenses);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to load your financial data.');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentUser]);
+  const handleLoadHistory = useCallback(async () => {
+    const params = historyFilter === 'day'
+      ? { fromDay: dayRange.from, toDay: dayRange.to }
+      : historyFilter === 'month'
+        ? { fromMonth: monthRange.from, toMonth: monthRange.to }
+        : { fromYear: yearRange.from, toYear: yearRange.to };
+    await loadHistory(params);
+  }, [dayRange, historyFilter, loadHistory, monthRange, yearRange]);
 
-  const loadHistory = useCallback(async () => {
-    if (!currentUser) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const params = historyFilter === 'day'
-        ? { fromDay: dayRange.from, toDay: dayRange.to }
-        : historyFilter === 'month'
-          ? { fromMonth: monthRange.from, toMonth: monthRange.to }
-          : { fromYear: yearRange.from, toYear: yearRange.to };
-      setHistoryData(await api.getHistory(params));
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to load spending history.');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentUser, dayRange, historyFilter, monthRange, yearRange]);
-
-  const loadAverages = useCallback(async () => {
-    if (!currentUser) return;
-    setLoading(true);
-    setError(null);
-    try {
-      setAveragesData(await api.getAverages({ type: averageFilter, fromDate: averageRange.from, toDate: averageRange.to }));
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to calculate averages.');
-    } finally {
-      setLoading(false);
-    }
-  }, [averageFilter, averageRange, currentUser]);
+  const handleLoadAverages = useCallback(async () => {
+    await loadAverages({ type: averageFilter, fromDate: averageRange.from, toDate: averageRange.to });
+  }, [averageFilter, averageRange, loadAverages]);
 
   useEffect(() => {
     const requestId = window.setTimeout(() => { void loadOverview(); }, 0);
     return () => window.clearTimeout(requestId);
-  }, [loadOverview]);
+  }, [loadOverview, currentUser]);
 
   useEffect(() => {
     if (page !== 'insights') return undefined;
     const requestId = window.setTimeout(() => {
-      if (insightMode === 'history') void loadHistory();
-      else void loadAverages();
+      if (insightMode === 'history') void handleLoadHistory();
+      else void handleLoadAverages();
     }, 0);
     return () => window.clearTimeout(requestId);
-  }, [insightMode, loadAverages, loadHistory, page]);
+  }, [insightMode, handleLoadAverages, handleLoadHistory, page]);
 
   const toggleBalances = () => {
     const next = !showBalances;
@@ -359,18 +299,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setAuthToken(null);
-    localStorage.removeItem('user');
-    setCurrentUser(null);
-    setAssets([]);
-    setLoans([]);
-    setBorrowings([]);
-    setIncomes([]);
-    setExpenses([]);
-    setHistoryData(null);
-    setAveragesData(null);
+    logout();
     setPage('dashboard');
-    setError(null);
     setAuthMessage('');
   };
 
@@ -512,7 +442,7 @@ export default function App() {
       if (kind === 'credit') await api.deleteIncome(id);
       else await api.deleteExpense(id);
       await loadOverview();
-      if (page === 'insights' && insightMode === 'history') await loadHistory();
+      if (page === 'insights' && insightMode === 'history') await handleLoadHistory();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to delete transaction.');
     }
@@ -520,7 +450,7 @@ export default function App() {
 
   const deleteExpenseFromHistory = async (id: string) => {
     if (!confirm('Delete this expense entry?')) return;
-    try { await api.deleteExpense(id); await Promise.all([loadOverview(), loadHistory()]); }
+    try { await api.deleteExpense(id); await Promise.all([loadOverview(), handleLoadHistory()]); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete expense.'); }
   };
 
@@ -732,10 +662,10 @@ export default function App() {
             <PageHeader eyebrow="Insights" title="Understand your spending rhythm" description="Explore the volume and shape of expenses without crowding your everyday dashboard." actions={<button className="icon-button" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
             <section className="insight-switch"><button className={insightMode === 'history' ? 'active' : ''} type="button" onClick={() => setInsightMode('history')}><BarChart3 size={17} />Spending history</button><button className={insightMode === 'averages' ? 'active' : ''} type="button" onClick={() => setInsightMode('averages')}><TrendingUp size={17} />Averages</button></section>
             {insightMode === 'history' ? <>
-              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Time period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={historyFilter === mode ? 'active' : ''} type="button" onClick={() => { setHistoryFilter(mode); if (mode === 'day') setDayRange(defaultRanges.day); if (mode === 'month') setMonthRange(defaultRanges.month); if (mode === 'year') setYearRange(defaultRanges.year); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div>{historyFilter === 'day' && <><label className="filter-field"><span>From</span><input type="date" value={dayRange.from} max={dayRange.to} onChange={(event) => setDayRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="date" value={dayRange.to} min={dayRange.from} onChange={(event) => setDayRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'month' && <><label className="filter-field"><span>From</span><input type="month" value={monthRange.from} max={monthRange.to} onChange={(event) => setMonthRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="month" value={monthRange.to} min={monthRange.from} onChange={(event) => setMonthRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'year' && <><label className="filter-field"><span>From</span><input type="number" min="2000" value={yearRange.from} onChange={(event) => setYearRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="number" min={yearRange.from} value={yearRange.to} onChange={(event) => setYearRange((range) => ({ ...range, to: event.target.value }))} /></label></>}<button className="button button-secondary button-small" type="button" onClick={() => void loadHistory()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
+              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Time period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={historyFilter === mode ? 'active' : ''} type="button" onClick={() => { setHistoryFilter(mode); if (mode === 'day') setDayRange(defaultRanges.day); if (mode === 'month') setMonthRange(defaultRanges.month); if (mode === 'year') setYearRange(defaultRanges.year); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div>{historyFilter === 'day' && <><label className="filter-field"><span>From</span><input type="date" value={dayRange.from} max={dayRange.to} onChange={(event) => setDayRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="date" value={dayRange.to} min={dayRange.from} onChange={(event) => setDayRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'month' && <><label className="filter-field"><span>From</span><input type="month" value={monthRange.from} max={monthRange.to} onChange={(event) => setMonthRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="month" value={monthRange.to} min={monthRange.from} onChange={(event) => setMonthRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'year' && <><label className="filter-field"><span>From</span><input type="number" min="2000" value={yearRange.from} onChange={(event) => setYearRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="number" min={yearRange.from} value={yearRange.to} onChange={(event) => setYearRange((range) => ({ ...range, to: event.target.value }))} /></label></>}<button className="button button-secondary button-small" type="button" onClick={() => void handleLoadHistory()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
               {historyData ? <><section className="insight-stat-row"><div><span>Total spend in range</span><strong className="amount-negative">{formatMoney(historyData.totalSpending, showBalances)}</strong></div><p>Expenses only · {historyData.transactions.length} recorded transaction{historyData.transactions.length === 1 ? '' : 's'}</p></section><section className="chart-grid"><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Volume</p><h2>Spending over time</h2></div></div><div className="chart-area"><ResponsiveContainer width="100%" height={300}><BarChart data={historyData.timelineData} margin={{ top: 8, right: 5, left: -18, bottom: 25 }}><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e9eceb" /><XAxis dataKey="period" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatTick(value, historyFilter)} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatMoney(Number(value), showBalances, true)} /><Tooltip content={<ChartTooltip visible={showBalances} />} /><Bar dataKey="amount" fill="#0e7a3c" radius={[6, 6, 0, 0]} maxBarSize={52} /></BarChart></ResponsiveContainer></div></article><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Distribution</p><h2>Where it went</h2></div></div>{historyData.categoryBreakdown.length ? <div className="category-chart"><ResponsiveContainer width="100%" height={245}><PieChart><Pie data={historyData.categoryBreakdown} dataKey="amount" nameKey="category" innerRadius={62} outerRadius={94} paddingAngle={3}>{historyData.categoryBreakdown.map((_, index) => <Cell fill={PIE_COLORS[index % PIE_COLORS.length]} key={index} />)}</Pie><Tooltip formatter={(value) => formatMoney(Number(value), showBalances)} /></PieChart></ResponsiveContainer><div className="category-legend">{historyData.categoryBreakdown.map((item, index) => <div key={item.category}><span style={{ background: PIE_COLORS[index % PIE_COLORS.length] }} /><span>{item.category}</span><strong>{showBalances ? `${item.percentage}%` : '••%'}</strong></div>)}</div></div> : <EmptyState icon={<BarChart3 size={22} />} title="No category data yet" copy="Your spending distribution will appear after you add expenses." />}</article></section><section className="panel table-panel"><div className="panel-header"><div><p className="panel-kicker">Expense records</p><h2>Transactions in this range</h2></div></div>{historyData.transactions.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Expense</th><th>Category</th><th>Account</th><th>Date</th><th className="align-right">Amount</th><th aria-label="Actions" /></tr></thead><tbody>{historyData.transactions.map((expense) => <tr key={expense.id}><td><div className="transaction-cell"><span className="transaction-icon debit"><TrendingDown size={16} /></span><div><strong>{expense.title}</strong><small>{expense.description || 'Expense'}</small></div></div></td><td><span className="category-chip">{expense.category}</span></td><td><span className="account-table-cell"><AssetIcon type={expense.asset?.type || 'bank'} size={15} />{expense.asset?.name || 'Unknown account'}</span></td><td>{formatDate(expense.date)}</td><td className="align-right amount-cell amount-negative">−{formatMoney(Number(expense.amount), showBalances)}</td><td><button className="icon-button danger-button" type="button" onClick={() => void deleteExpenseFromHistory(expense.id)} aria-label={`Delete ${expense.title}`}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={<Receipt size={22} />} title="No expenses in this period" copy="Change the period or add an expense to begin analysing it." />}</section></> : <section className="panel"><EmptyState icon={<RefreshCw className={loading ? 'spin' : ''} size={22} />} title="Loading your history" copy="Your spending picture is being prepared." /></section>}
             </> : <>
-              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Comparison period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={averageFilter === mode ? 'active' : ''} type="button" onClick={() => { setAverageFilter(mode); setAverageRange(defaultRanges[mode]); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div><label className="filter-field"><span>From</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} value={averageRange.from} onChange={(event) => setAverageRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} min={averageRange.from} value={averageRange.to} onChange={(event) => setAverageRange((range) => ({ ...range, to: event.target.value }))} /></label><button className="button button-secondary button-small" type="button" onClick={() => void loadAverages()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
+              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Comparison period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={averageFilter === mode ? 'active' : ''} type="button" onClick={() => { setAverageFilter(mode); setAverageRange(defaultRanges[mode]); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div><label className="filter-field"><span>From</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} value={averageRange.from} onChange={(event) => setAverageRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} min={averageRange.from} value={averageRange.to} onChange={(event) => setAverageRange((range) => ({ ...range, to: event.target.value }))} /></label><button className="button button-secondary button-small" type="button" onClick={() => void handleLoadAverages()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
               {averagesData ? <><section className="average-hero"><div><span>Average spend per {averageFilter}</span><strong>{formatMoney(averagesData.meanValue, showBalances)}</strong></div><p>Calculated from expenses only across the selected period.</p></section><section className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Pattern</p><h2>Average spending comparison</h2></div><span className="chart-summary">Mean {formatMoney(averagesData.meanValue, showBalances, true)}</span></div><div className="chart-area chart-area-large"><ResponsiveContainer width="100%" height={370}><BarChart data={averagesData.periodData} margin={{ top: 8, right: 5, left: -18, bottom: 30 }}><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e9eceb" /><XAxis dataKey="period" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatTick(value, averageFilter)} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatMoney(Number(value), showBalances, true)} /><Tooltip content={<ChartTooltip visible={showBalances} />} /><Bar dataKey="amount" fill="#1e293b" radius={[6, 6, 0, 0]} maxBarSize={60} /></BarChart></ResponsiveContainer></div></section><section className="insight-note"><TrendingUp size={19} /><p>Use a narrower date range to spot routines rather than isolated large purchases. The average always excludes income.</p></section></> : <section className="panel"><EmptyState icon={<RefreshCw className={loading ? 'spin' : ''} size={22} />} title="Calculating your average" copy="Your expense comparison is being prepared." /></section>}
             </>}
           </>
