@@ -177,7 +177,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .amount-muted { color: #99a49d !important; text-decoration: line-through; }
 .activity-row > strong { font-family: 'DM Mono', monospace; font-size: .78rem; white-space: nowrap; }
 .debt-pulse-row { margin: 0 21px; padding: 11px 0; border-top: 1px solid #edf0ed; }
-.debt-pulse .button { margin: 15px 21px 0; }
+.debt-pulse .button { margin: 15px 21px 0; width: calc(100% - 42px); }
 
 /* Activity and data tables */
 .filter-panel { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 0 0 17px; padding: 14px; border: 1px solid #e0e7e1; border-radius: 12px; background: #fff; }
