@@ -1,1253 +1,764 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import {
-  Wallet, TrendingUp, TrendingDown, Users, BarChart3,
-  Plus, Trash2, RefreshCw, Coins, CreditCard,
-  X, HelpCircle, LogOut,
-  Eye, EyeOff, List, ArrowUpRight, ArrowDownRight
+  ArrowDownRight,
+  ArrowUpRight,
+  BarChart3,
+  Building2,
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
+  Coins,
+  CreditCard,
+  Eye,
+  EyeOff,
+  Landmark,
+  LayoutDashboard,
+  ListFilter,
+  LogOut,
+  Menu,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Receipt,
+  RefreshCw,
+  Settings2,
+  TrendingDown,
+  TrendingUp,
+  Trash2,
+  UserRound,
+  Wallet,
+  X,
 } from 'lucide-react';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, PieChart, Pie, Cell
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import { api, setAuthToken } from './api';
-import type { Asset, Loan, Borrowing, Income, Expense, HistoryResponse, AveragesResponse, AuthUser } from './api';
+import type {
+  Asset,
+  AveragesResponse,
+  AuthUser,
+  Borrowing,
+  Expense,
+  HistoryResponse,
+  Income,
+  Loan,
+} from './api';
+
+type Page = 'dashboard' | 'activity' | 'accounts' | 'debts' | 'insights' | 'profile';
+type Modal = 'asset' | 'income' | 'expense' | 'loan' | 'borrowing' | null;
+type InsightMode = 'history' | 'averages';
 
 const CATEGORIES = ['Food', 'Rent', 'Shopping', 'Travel', 'Utilities', 'Others'];
+const PIE_COLORS = ['#0e7a3c', '#1e5eff', '#d97706', '#7c3aed', '#db2777', '#475569'];
 
-// Vibrant distinct colours for each expense category in the pie chart
-const PIE_COLORS = [
-  '#6366f1', // indigo   — Food
-  '#f59e0b', // amber    — Rent
-  '#10b981', // emerald  — Shopping
-  '#3b82f6', // blue     — Travel
-  '#8b5cf6', // violet   — Utilities
-  '#f43f5e', // rose     — Others
-];
-
-// Bar heat-map: low spend = green, mid = amber, high = red (HSL interpolation)
-function getBarColor(value: number, min: number, max: number): string {
-  if (max <= min) return '#6366f1'; // single bar fallback
-  const ratio = (value - min) / (max - min); // 0 → 1
-  // hue goes 145 (green) → 40 (amber) → 0 (red)
-  const hue = Math.round(145 - ratio * 145);
-  const sat = Math.round(62 + ratio * 18);  // 62% → 80%
-  const lit = Math.round(50 - ratio * 8);   // 50% → 42%
-  return `hsl(${hue}, ${sat}%, ${lit}%)`;
-}
-
-type Tab = 'dashboard' | 'ledger' | 'history' | 'averages';
-
-/* ── default date range helpers ──────────────────────────────── */
-const todayStr  = () => new Date().toISOString().split('T')[0];
-const daysAgo   = (n: number) => new Date(Date.now() - n * 864e5).toISOString().split('T')[0];
-const monthsAgo = (n: number) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 7); };
+const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
-const thisYear  = () => String(new Date().getFullYear());
-const lastYear  = () => String(new Date().getFullYear() - 1);
+const daysAgo = (days: number) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+const monthsAgo = (months: number) => {
+  const date = new Date();
+  date.setMonth(date.getMonth() - months);
+  return date.toISOString().slice(0, 7);
+};
+const thisYear = () => String(new Date().getFullYear());
+const lastYear = () => String(new Date().getFullYear() - 1);
 
 const defaultRanges = {
-  day:   { from: daysAgo(30),     to: todayStr() },
-  month: { from: monthsAgo(5),    to: thisMonth() },
-  year:  { from: lastYear(),      to: thisYear()  },
+  day: { from: daysAgo(30), to: today() },
+  month: { from: monthsAgo(5), to: thisMonth() },
+  year: { from: lastYear(), to: thisYear() },
 };
 
-/* ── X-axis label formatter per filter mode ──────────────────── */
-function fmtPeriodTick(period: string, mode: string): string {
-  try {
-    if (mode === 'day') {
-      const d = new Date(period + 'T00:00:00');
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-    if (mode === 'month') {
-      const [y, m] = period.split('-');
-      const d = new Date(Number(y), Number(m) - 1, 1);
-      return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-    }
-  } catch {}
-  return period; // year or fallback
+function formatMoney(value: number, visible: boolean, compact = false) {
+  if (!visible) return '••••••';
+  return new Intl.NumberFormat('en-BD', {
+    style: 'currency',
+    currency: 'BDT',
+    notation: compact ? 'compact' : 'standard',
+    maximumFractionDigits: compact ? 1 : 2,
+  }).format(value);
 }
 
-/* ── helpers ─────────────────────────────────────────────────── */
-const assetLabel = (type: string) =>
-  type === 'bank' ? 'Bank' : type === 'wallet' ? 'Digital Wallet' : 'On Hand';
-
-const assetBadgeClass = (type: string) =>
-  type === 'bank' ? 'bank-badge' : type === 'wallet' ? 'wallet-badge' : 'hand-badge';
-
-function fmt(value: number, visible: boolean) {
-  return visible
-    ? `৳${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : '••••••';
+function formatDate(value: string) {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.valueOf())
+    ? value
+    : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/* ── custom tooltip ──────────────────────────────────────────── */
-function ChartTooltip({ active, payload, label, visible }: any) {
-  if (!active || !payload?.length) return null;
+function formatTick(period: string, mode: string) {
+  if (mode === 'day') return new Date(`${period}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (mode === 'month') {
+    const [year, month] = period.split('-');
+    return new Date(Number(year), Number(month) - 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  }
+  return period;
+}
+
+function assetLabel(type: Asset['type']) {
+  return type === 'bank' ? 'Bank account' : type === 'wallet' ? 'Digital wallet' : 'Cash on hand';
+}
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function AssetIcon({ type, size = 17 }: { type: Asset['type']; size?: number }) {
+  if (type === 'bank') return <Landmark size={size} aria-hidden="true" />;
+  if (type === 'wallet') return <Wallet size={size} aria-hidden="true" />;
+  return <Coins size={size} aria-hidden="true" />;
+}
+
+function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  actions?: ReactNode;
+}) {
   return (
-    <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: '10px 14px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-      <p style={{ fontSize: '0.78rem', fontWeight: 800, color: '#888', marginBottom: 4 }}>{label}</p>
-      <p style={{ fontWeight: 800, fontSize: '1rem', color: '#0a0a0a' }}>
-        {visible ? `৳${Number(payload[0].value).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '••••••'}
-      </p>
+    <header className="page-header">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        <p className="page-description">{description}</p>
+      </div>
+      {actions && <div className="page-actions">{actions}</div>}
+    </header>
+  );
+}
+
+function EmptyState({ icon, title, copy, action }: { icon: ReactNode; title: string; copy: string; action?: ReactNode }) {
+  return (
+    <div className="empty-state">
+      <div className="empty-state-icon">{icon}</div>
+      <strong>{title}</strong>
+      <p>{copy}</p>
+      {action}
     </div>
   );
 }
 
-/* ════════════════════════════════════════════════════════════════
-   MAIN APP
-════════════════════════════════════════════════════════════════ */
+function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose} role="presentation">
+      <section className="modal" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="modal-header">
+          <div>
+            <h2>{title}</h2>
+            <p>{subtitle}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function ChartTooltip({ active, payload, label, visible }: { active?: boolean; payload?: { value: number }[]; label?: string; visible: boolean }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="chart-tooltip">
+      <span>{label}</span>
+      <strong>{formatMoney(Number(payload[0].value), visible)}</strong>
+    </div>
+  );
+}
+
 export default function App() {
-  /* auth */
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
-    const s = localStorage.getItem('user');
-    return s ? JSON.parse(s) : null;
+    try {
+      const saved = localStorage.getItem('user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
-  const [authTab, setAuthTab]             = useState<'login' | 'register'>('login');
-  const [authName, setAuthName]           = useState('');
-  const [authEmail, setAuthEmail]         = useState('');
-  const [authPassword, setAuthPassword]   = useState('');
-  const [authConfirm, setAuthConfirm]     = useState('');
-  const [authMsg, setAuthMsg]             = useState('');
+  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirm, setAuthConfirm] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
 
-  /* app state */
-  const [tab, setTab]                     = useState<Tab>('dashboard');
-  const [showBal, setShowBal]             = useState(() => localStorage.getItem('showBal') !== 'false');
-  const [loading, setLoading]             = useState(false);
-  const [error, setError]                 = useState<string | null>(null);
+  const [page, setPage] = useState<Page>('dashboard');
+  const [showBalances, setShowBalances] = useState(() => localStorage.getItem('showBalances') !== 'false');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  /* data */
-  const [assets, setAssets]               = useState<Asset[]>([]);
-  const [loans, setLoans]                 = useState<Loan[]>([]);
-  const [borrowings, setBorrowings]       = useState<Borrowing[]>([]);
-  const [historyData, setHistoryData]     = useState<HistoryResponse | null>(null);
-  const [averagesData, setAveragesData]   = useState<AveragesResponse | null>(null);
-  const [ledgerIncomes, setLedgerIncomes] = useState<Income[]>([]);
-  const [ledgerExpenses, setLedgerExpenses] = useState<Expense[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [borrowings, setBorrowings] = useState<Borrowing[]>([]);
+  const [incomes, setIncomes] = useState<Income[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [historyData, setHistoryData] = useState<HistoryResponse | null>(null);
+  const [averagesData, setAveragesData] = useState<AveragesResponse | null>(null);
 
-  /* filters — initialise with sensible defaults so charts load immediately */
-  const [historyFilter, setHistoryFilter] = useState<'day'|'month'|'year'>('month');
-  const [dayRange, setDayRange]           = useState(defaultRanges.day);
-  const [monthRange, setMonthRange]       = useState(defaultRanges.month);
-  const [yearRange, setYearRange]         = useState(defaultRanges.year);
-  const [avgFilter, setAvgFilter]         = useState<'day'|'month'|'year'>('month');
-  const [avgRange, setAvgRange]           = useState(defaultRanges.month);
-  const [ledgerAsset, setLedgerAsset]     = useState('all');
-  const [ledgerDate, setLedgerDate]       = useState({ from: '', to: '' });
+  const [modal, setModal] = useState<Modal>(null);
+  const [assetDraft, setAssetDraft] = useState({ id: '', name: '', type: 'bank' as Asset['type'], balance: '' });
+  const [incomeDraft, setIncomeDraft] = useState({ source: '', amount: '', date: today(), description: '', assetId: '' });
+  const [expenseDraft, setExpenseDraft] = useState({ title: '', amount: '', category: 'Food', date: today(), description: '', assetId: '' });
+  const [loanDraft, setLoanDraft] = useState({ debtorName: '', amount: '', date: today(), description: '' });
+  const [borrowingDraft, setBorrowingDraft] = useState({ lenderName: '', amount: '', date: today(), description: '' });
 
-  /* forms */
-  const [incomeForm, setIncomeForm] = useState({ source: '', amount: '', date: today(), description: '', assetId: '' });
-  const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food', date: today(), description: '', assetId: '' });
-  const [newAsset, setNewAsset]     = useState({ name: '', type: 'bank' as Asset['type'], balance: 0 });
-  const [newLoan, setNewLoan]       = useState({ debtorName: '', amount: 0, date: today(), description: '' });
-  const [newBorrowing, setNewBorrowing] = useState({ lenderName: '', amount: 0, date: today(), description: '' });
+  const [activityType, setActivityType] = useState<'all' | 'credit' | 'debit'>('all');
+  const [activityAsset, setActivityAsset] = useState('all');
+  const [activityDates, setActivityDates] = useState({ from: '', to: '' });
 
-  /* modals */
-  const [assetModal, setAssetModal]   = useState(false);
-  const [loanModal, setLoanModal]     = useState(false);
-  const [borrowModal, setBorrowModal] = useState(false);
+  const [insightMode, setInsightMode] = useState<InsightMode>('history');
+  const [historyFilter, setHistoryFilter] = useState<'day' | 'month' | 'year'>('month');
+  const [dayRange, setDayRange] = useState(defaultRanges.day);
+  const [monthRange, setMonthRange] = useState(defaultRanges.month);
+  const [yearRange, setYearRange] = useState(defaultRanges.year);
+  const [averageFilter, setAverageFilter] = useState<'day' | 'month' | 'year'>('month');
+  const [averageRange, setAverageRange] = useState(defaultRanges.month);
 
-  function today() { return new Date().toISOString().split('T')[0]; }
+  const [profileName, setProfileName] = useState(() => localStorage.getItem('profileName') || currentUser?.name || '');
+  const [profileMessage, setProfileMessage] = useState('');
 
-  /* ── data loaders ─────────────────────────────────────────── */
-  const loadDashboard = useCallback(async () => {
+  const loadOverview = useCallback(async () => {
     if (!currentUser) return;
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
-      const [a, l, b] = await Promise.all([api.getAssets(), api.getLoans(), api.getBorrowings()]);
-      setAssets(a); setLoans(l); setBorrowings(b);
-    } catch (e: any) {
-      if (e.message?.includes('Unauthorized')) handleLogout();
-      else setError(e.message || 'Failed to load data.');
-    } finally { setLoading(false); }
-  }, [currentUser]);
-
-  const loadLedger = useCallback(async () => {
-    if (!currentUser) return;
-    setLoading(true); setError(null);
-    try {
-      const [a, inc, exp] = await Promise.all([api.getAssets(), api.getIncome(), api.getExpenses()]);
-      setAssets(a); setLedgerIncomes(inc); setLedgerExpenses(exp);
-    } catch (e: any) { setError(e.message || 'Failed to load ledger.'); }
-    finally { setLoading(false); }
+      const [nextAssets, nextLoans, nextBorrowings, nextIncomes, nextExpenses] = await Promise.all([
+        api.getAssets(),
+        api.getLoans(),
+        api.getBorrowings(),
+        api.getIncome(),
+        api.getExpenses(),
+      ]);
+      setAssets(nextAssets);
+      setLoans(nextLoans);
+      setBorrowings(nextBorrowings);
+      setIncomes(nextIncomes);
+      setExpenses(nextExpenses);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to load your financial data.');
+    } finally {
+      setLoading(false);
+    }
   }, [currentUser]);
 
   const loadHistory = useCallback(async () => {
     if (!currentUser) return;
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
-      let params: any = {};
-      if (historyFilter === 'day') params = { fromDay: dayRange.from, toDay: dayRange.to };
-      else if (historyFilter === 'month') params = { fromMonth: monthRange.from, toMonth: monthRange.to };
-      else params = { fromYear: yearRange.from, toYear: yearRange.to };
+      const params = historyFilter === 'day'
+        ? { fromDay: dayRange.from, toDay: dayRange.to }
+        : historyFilter === 'month'
+          ? { fromMonth: monthRange.from, toMonth: monthRange.to }
+          : { fromYear: yearRange.from, toYear: yearRange.to };
       setHistoryData(await api.getHistory(params));
-    } catch (e: any) { setError(e.message || 'Failed to load history.'); }
-    finally { setLoading(false); }
-  }, [currentUser, historyFilter, dayRange, monthRange, yearRange]);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to load spending history.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser, dayRange, historyFilter, monthRange, yearRange]);
 
   const loadAverages = useCallback(async () => {
     if (!currentUser) return;
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
-      setAveragesData(await api.getAverages({ type: avgFilter, fromDate: avgRange.from, toDate: avgRange.to }));
-    } catch (e: any) { setError(e.message || 'Failed to load averages.'); }
-    finally { setLoading(false); }
-  }, [currentUser, avgFilter, avgRange]);
-
-  /* ── effects ──────────────────────────────────────────────── */
-  useEffect(() => { if (currentUser) loadDashboard(); }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-    if (tab === 'ledger') loadLedger();
-    else if (tab === 'history') loadHistory();
-    else if (tab === 'averages') loadAverages();
-  }, [tab, historyFilter, dayRange, monthRange, yearRange, avgFilter, avgRange]);
-
-  useEffect(() => {
-    if (assets.length === 0) {
-      setIncomeForm(p => ({ ...p, assetId: '' }));
-      setExpenseForm(p => ({ ...p, assetId: '' }));
-      return;
+      setAveragesData(await api.getAverages({ type: averageFilter, fromDate: averageRange.from, toDate: averageRange.to }));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to calculate averages.');
+    } finally {
+      setLoading(false);
     }
-    setIncomeForm(p => (!p.assetId || !assets.some(a => a.id === p.assetId) ? { ...p, assetId: assets[0].id } : p));
-    setExpenseForm(p => {
-      const onHand = assets.find(a => a.type === 'on_hand');
-      if (onHand) return (!p.assetId || !assets.find(a => a.id === p.assetId && a.type === 'on_hand')) ? { ...p, assetId: onHand.id } : p;
-      return (!p.assetId || !assets.some(a => a.id === p.assetId)) ? { ...p, assetId: assets[0].id } : p;
-    });
-  }, [assets]);
+  }, [averageFilter, averageRange, currentUser]);
 
-  /* ── auth handlers ────────────────────────────────────────── */
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault(); setError(null); setLoading(true);
-    try {
-      const res = await api.login({ email: authEmail, passwordPlain: authPassword });
-      setAuthToken(res.access_token);
-      localStorage.setItem('user', JSON.stringify(res.user));
-      setCurrentUser(res.user);
-      setAuthPassword('');
-    } catch (e: any) { setError(e.message || 'Login failed.'); }
-    finally { setLoading(false); }
+  useEffect(() => {
+    const requestId = window.setTimeout(() => { void loadOverview(); }, 0);
+    return () => window.clearTimeout(requestId);
+  }, [loadOverview]);
+
+  useEffect(() => {
+    if (page !== 'insights') return undefined;
+    const requestId = window.setTimeout(() => {
+      if (insightMode === 'history') void loadHistory();
+      else void loadAverages();
+    }, 0);
+    return () => window.clearTimeout(requestId);
+  }, [insightMode, loadAverages, loadHistory, page]);
+
+  const toggleBalances = () => {
+    const next = !showBalances;
+    setShowBalances(next);
+    localStorage.setItem('showBalances', String(next));
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault(); setError(null); setAuthMsg('');
-    if (authPassword !== authConfirm) { setError('Passwords do not match.'); return; }
+  const toggleSidebar = () => {
+    const next = !sidebarCollapsed;
+    setSidebarCollapsed(next);
+    localStorage.setItem('sidebarCollapsed', String(next));
+  };
+
+  const handleLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.login({ email: authEmail, passwordPlain: authPassword });
+      setAuthToken(result.access_token);
+      localStorage.setItem('user', JSON.stringify(result.user));
+      setCurrentUser(result.user);
+      setProfileName(localStorage.getItem('profileName') || result.user.name);
+      setAuthPassword('');
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Sign in failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    setAuthMessage('');
+    if (authPassword !== authConfirm) {
+      setError('Passwords do not match.');
+      return;
+    }
     setLoading(true);
     try {
       await api.register({ name: authName, email: authEmail, passwordPlain: authPassword });
-      setAuthMsg('Account created! Please sign in.');
       setAuthTab('login');
-      setAuthName(''); setAuthPassword(''); setAuthConfirm('');
-    } catch (e: any) { setError(e.message || 'Registration failed.'); }
-    finally { setLoading(false); }
+      setAuthMessage('Account created. Sign in to open your workspace.');
+      setAuthPassword('');
+      setAuthConfirm('');
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to create account.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
-    setAuthToken(null); localStorage.removeItem('user'); setCurrentUser(null);
-    setAssets([]); setLoans([]); setBorrowings([]);
-    setHistoryData(null); setAveragesData(null);
-    setLedgerIncomes([]); setLedgerExpenses([]);
-    setTab('dashboard'); setAuthEmail(''); setAuthPassword(''); setError(null); setAuthMsg('');
+    setAuthToken(null);
+    localStorage.removeItem('user');
+    setCurrentUser(null);
+    setAssets([]);
+    setLoans([]);
+    setBorrowings([]);
+    setIncomes([]);
+    setExpenses([]);
+    setHistoryData(null);
+    setAveragesData(null);
+    setPage('dashboard');
+    setError(null);
+    setAuthMessage('');
   };
 
-  /* ── CRUD handlers ────────────────────────────────────────── */
-  const handleCreateAsset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try { await api.createAsset(newAsset); setAssetModal(false); setNewAsset({ name: '', type: 'bank', balance: 0 }); loadDashboard(); }
-    catch (e: any) { setError(e.message || 'Failed to create asset.'); }
+  const closeModal = () => setModal(null);
+
+  const openNewAsset = () => {
+    setAssetDraft({ id: '', name: '', type: 'bank', balance: '' });
+    setModal('asset');
   };
 
-  const handleCreateLoan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try { await api.createLoan(newLoan); setLoanModal(false); setNewLoan({ debtorName: '', amount: 0, date: today(), description: '' }); loadDashboard(); }
-    catch (e: any) { setError(e.message || 'Failed to record loan.'); }
+  const openEditAsset = (asset: Asset) => {
+    setAssetDraft({ id: asset.id, name: asset.name, type: asset.type, balance: String(asset.balance) });
+    setModal('asset');
   };
 
-  const handleCreateBorrowing = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try { await api.createBorrowing(newBorrowing); setBorrowModal(false); setNewBorrowing({ lenderName: '', amount: 0, date: today(), description: '' }); loadDashboard(); }
-    catch (e: any) { setError(e.message || 'Failed to record borrowing.'); }
+  const handleAsset = async (event: FormEvent) => {
+    event.preventDefault();
+    const balance = Number(assetDraft.balance);
+    if (!assetDraft.name.trim() || Number.isNaN(balance) || balance < 0) {
+      setError('Enter an account name and a valid non-negative balance.');
+      return;
+    }
+    try {
+      if (assetDraft.id) await api.updateAsset(assetDraft.id, { name: assetDraft.name.trim(), type: assetDraft.type, balance });
+      else await api.createAsset({ name: assetDraft.name.trim(), type: assetDraft.type, balance });
+      closeModal();
+      await loadOverview();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to save account.');
+    }
   };
 
-  const handleSettleLoan = async (id: string) => {
-    try { await api.settleLoan(id); loadDashboard(); } catch (e: any) { setError(e.message || 'Failed.'); }
+  const handleDeleteAsset = async () => {
+    if (!assetDraft.id || !confirm('Delete this account? This cannot be undone.')) return;
+    try {
+      await api.deleteAsset(assetDraft.id);
+      closeModal();
+      await loadOverview();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to delete account.');
+    }
   };
-  const handleDeleteLoan = async (id: string) => {
+
+  const handleIncome = async (event: FormEvent) => {
+    event.preventDefault();
+    const amount = Number(incomeDraft.amount);
+    const assetId = incomeDraft.assetId || assets[0]?.id || '';
+    if (!incomeDraft.source.trim() || !assetId || !amount || amount < 0) {
+      setError('Complete the required income fields.');
+      return;
+    }
+    try {
+      await api.createIncome({ ...incomeDraft, source: incomeDraft.source.trim(), amount, assetId });
+      setIncomeDraft((draft) => ({ ...draft, source: '', amount: '', date: today(), description: '' }));
+      closeModal();
+      await loadOverview();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to add income.');
+    }
+  };
+
+  const handleExpense = async (event: FormEvent) => {
+    event.preventDefault();
+    const amount = Number(expenseDraft.amount);
+    const assetId = expenseDraft.assetId || assets[0]?.id || '';
+    if (!expenseDraft.title.trim() || !assetId || !amount || amount < 0) {
+      setError('Complete the required expense fields.');
+      return;
+    }
+    try {
+      await api.createExpense({ ...expenseDraft, title: expenseDraft.title.trim(), amount, assetId });
+      setExpenseDraft((draft) => ({ ...draft, title: '', amount: '', date: today(), description: '' }));
+      closeModal();
+      await loadOverview();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to add expense.');
+    }
+  };
+
+  const handleLoan = async (event: FormEvent) => {
+    event.preventDefault();
+    const amount = Number(loanDraft.amount);
+    if (!loanDraft.debtorName.trim() || !amount || amount < 0) {
+      setError('Complete the required loan fields.');
+      return;
+    }
+    try {
+      await api.createLoan({ ...loanDraft, debtorName: loanDraft.debtorName.trim(), amount });
+      setLoanDraft({ debtorName: '', amount: '', date: today(), description: '' });
+      closeModal();
+      await loadOverview();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to add loan.');
+    }
+  };
+
+  const handleBorrowing = async (event: FormEvent) => {
+    event.preventDefault();
+    const amount = Number(borrowingDraft.amount);
+    if (!borrowingDraft.lenderName.trim() || !amount || amount < 0) {
+      setError('Complete the required borrowing fields.');
+      return;
+    }
+    try {
+      await api.createBorrowing({ ...borrowingDraft, lenderName: borrowingDraft.lenderName.trim(), amount });
+      setBorrowingDraft({ lenderName: '', amount: '', date: today(), description: '' });
+      closeModal();
+      await loadOverview();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to add borrowing.');
+    }
+  };
+
+  const settleLoan = async (id: string) => {
+    try { await api.settleLoan(id); await loadOverview(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update loan.'); }
+  };
+
+  const settleBorrowing = async (id: string) => {
+    try { await api.settleBorrowing(id); await loadOverview(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update borrowing.'); }
+  };
+
+  const deleteLoan = async (id: string) => {
     if (!confirm('Delete this loan?')) return;
-    try { await api.deleteLoan(id); loadDashboard(); } catch (e: any) { setError(e.message || 'Failed.'); }
+    try { await api.deleteLoan(id); await loadOverview(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete loan.'); }
   };
-  const handleSettleBorrowing = async (id: string) => {
-    try { await api.settleBorrowing(id); loadDashboard(); } catch (e: any) { setError(e.message || 'Failed.'); }
-  };
-  const handleDeleteBorrowing = async (id: string) => {
+
+  const deleteBorrowing = async (id: string) => {
     if (!confirm('Delete this borrowing?')) return;
-    try { await api.deleteBorrowing(id); loadDashboard(); } catch (e: any) { setError(e.message || 'Failed.'); }
+    try { await api.deleteBorrowing(id); await loadOverview(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete borrowing.'); }
   };
 
-  const handleLogIncome = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseFloat(incomeForm.amount);
-    if (!incomeForm.source || isNaN(amount) || amount <= 0 || !incomeForm.assetId) {
-      setError('Please fill all required fields and select an asset.'); return;
+  const deleteActivity = async (id: string, kind: 'credit' | 'debit') => {
+    if (!confirm(`Delete this ${kind === 'credit' ? 'income' : 'expense'} entry?`)) return;
+    try {
+      if (kind === 'credit') await api.deleteIncome(id);
+      else await api.deleteExpense(id);
+      await loadOverview();
+      if (page === 'insights' && insightMode === 'history') await loadHistory();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to delete transaction.');
+    }
+  };
+
+  const deleteExpenseFromHistory = async (id: string) => {
+    if (!confirm('Delete this expense entry?')) return;
+    try { await api.deleteExpense(id); await Promise.all([loadOverview(), loadHistory()]); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete expense.'); }
+  };
+
+  const saveProfile = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!currentUser) return;
+    const nextName = profileName.trim();
+    if (!nextName) {
+      setProfileMessage('Your display name cannot be empty.');
+      return;
     }
     try {
-      await api.createIncome({ source: incomeForm.source, amount, date: incomeForm.date, description: incomeForm.description, assetId: incomeForm.assetId });
-      setIncomeForm(p => ({ source: '', amount: '', date: today(), description: '', assetId: p.assetId }));
-      loadDashboard();
-    } catch (e: any) { setError(e.message || 'Failed to log income.'); }
-  };
-
-  const handleLogExpense = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseFloat(expenseForm.amount);
-    if (!expenseForm.title || isNaN(amount) || amount <= 0 || !expenseForm.assetId) {
-      setError('Please fill all required fields and select an asset.'); return;
+      const updatedUser = await api.updateProfile({ name: nextName });
+      setCurrentUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setProfileMessage('Profile updated successfully.');
+    } catch (e: any) {
+      setProfileMessage(e.message || 'Failed to update profile.');
     }
-    try {
-      await api.createExpense({ title: expenseForm.title, amount, category: expenseForm.category, date: expenseForm.date, description: expenseForm.description, assetId: expenseForm.assetId });
-      setExpenseForm(p => ({ title: '', amount: '', category: 'Food', date: today(), description: '', assetId: p.assetId }));
-      loadDashboard();
-    } catch (e: any) { setError(e.message || 'Failed to log expense.'); }
   };
 
-  const handleDeleteExpense = async (id: string) => {
-    if (!confirm('Delete this expense?')) return;
-    try { await api.deleteExpense(id); if (tab === 'history') loadHistory(); else loadDashboard(); }
-    catch (e: any) { setError(e.message || 'Failed.'); }
-  };
+  const totalAssets = useMemo(() => assets.reduce((sum, asset) => sum + Number(asset.balance), 0), [assets]);
+  const outstandingLoans = useMemo(() => loans.reduce((sum, loan) => sum + (loan.isSettled ? 0 : Number(loan.amount)), 0), [loans]);
+  const outstandingBorrowings = useMemo(() => borrowings.reduce((sum, borrowing) => sum + (borrowing.isSettled ? 0 : Number(borrowing.amount)), 0), [borrowings]);
+  const netWorth = totalAssets + outstandingLoans - outstandingBorrowings;
+  const periodIncome = useMemo(() => incomes.filter((income) => income.date.startsWith(thisMonth())).reduce((sum, income) => sum + Number(income.amount), 0), [incomes]);
+  const periodExpenses = useMemo(() => expenses.filter((expense) => expense.date.startsWith(thisMonth())).reduce((sum, expense) => sum + Number(expense.amount), 0), [expenses]);
 
-  const handleDeleteLedger = async (item: { id: string; type: 'credit' | 'debit' }) => {
-    if (!confirm(`Delete this ${item.type === 'credit' ? 'income' : 'expense'} record?`)) return;
-    try {
-      if (item.type === 'credit') await api.deleteIncome(item.id);
-      else await api.deleteExpense(item.id);
-      loadLedger();
-    } catch (e: any) { setError(e.message || 'Failed.'); }
-  };
-
-  /* ── derived values ──────────────────────────────────────── */
-  const totalAssets    = assets.reduce((s, a) => s + Number(a.balance), 0);
-  const totalLent      = loans.reduce((s, l) => s + (l.isSettled ? 0 : Number(l.amount)), 0);
-  const totalBorrowed  = borrowings.reduce((s, b) => s + (b.isSettled ? 0 : Number(b.amount)), 0);
-  const netWorth       = totalAssets + totalLent - totalBorrowed;
-
-  const toggleBal = () => { const n = !showBal; setShowBal(n); localStorage.setItem('showBal', String(n)); };
-
-  /* ledger merged data */
-  const ledgerItems = [
-    ...ledgerIncomes.map(i => ({ id: i.id, type: 'credit' as const, title: i.source, amount: Number(i.amount), date: i.date, description: i.description, assetName: i.asset?.name || '—', assetType: i.asset?.type || 'bank', assetId: i.asset?.id || '' })),
-    ...ledgerExpenses.map(e => ({ id: e.id, type: 'debit' as const, title: e.title, amount: Number(e.amount), date: e.date, description: e.description, assetName: e.asset?.name || '—', assetType: e.asset?.type || 'bank', assetId: e.asset?.id || '' }))
-  ].filter(it => {
-    if (ledgerAsset !== 'all' && it.assetId !== ledgerAsset) return false;
-    if (ledgerDate.from && it.date < ledgerDate.from) return false;
-    if (ledgerDate.to && it.date > ledgerDate.to) return false;
+  const activityItems = useMemo(() => [
+    ...incomes.map((income) => ({
+      id: income.id, kind: 'credit' as const, title: income.source, amount: Number(income.amount), date: income.date,
+      description: income.description || '', assetName: income.asset?.name || 'Unknown account', assetType: income.asset?.type || 'bank', assetId: income.asset?.id || '',
+    })),
+    ...expenses.map((expense) => ({
+      id: expense.id, kind: 'debit' as const, title: expense.title, amount: Number(expense.amount), date: expense.date,
+      description: expense.description || '', assetName: expense.asset?.name || 'Unknown account', assetType: expense.asset?.type || 'bank', assetId: expense.asset?.id || '',
+    })),
+  ].filter((item) => {
+    if (activityType !== 'all' && item.kind !== activityType) return false;
+    if (activityAsset !== 'all' && item.assetId !== activityAsset) return false;
+    if (activityDates.from && item.date < activityDates.from) return false;
+    if (activityDates.to && item.date > activityDates.to) return false;
     return true;
-  }).sort((a, b) => b.date.localeCompare(a.date));
+  }).sort((first, second) => second.date.localeCompare(first.date)), [activityAsset, activityDates, activityType, expenses, incomes]);
 
-  /* ── AUTH SCREEN ─────────────────────────────────────────── */
+  const recentActivity = activityItems.slice(0, 5);
+  const navItems: { id: Page; label: string; shortLabel: string; icon: ReactNode }[] = [
+    { id: 'dashboard', label: 'Overview', shortLabel: 'Overview', icon: <LayoutDashboard size={18} /> },
+    { id: 'activity', label: 'Activity', shortLabel: 'Activity', icon: <Receipt size={18} /> },
+    { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts', icon: <Landmark size={18} /> },
+    { id: 'debts', label: 'Debt book', shortLabel: 'Debts', icon: <CircleDollarSign size={18} /> },
+    { id: 'insights', label: 'Insights', shortLabel: 'Insights', icon: <BarChart3 size={18} /> },
+    { id: 'profile', label: 'Profile & settings', shortLabel: 'Profile', icon: <UserRound size={18} /> },
+  ];
+
+  const goToPage = (nextPage: Page) => {
+    setPage(nextPage);
+    setMobileNavOpen(false);
+  };
+
   if (!currentUser) {
     return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          {/* Logo */}
-          <div className="auth-logo">
-            <div className="auth-logo-mark">X</div>
-            <span className="auth-logo-text">xpense</span>
+      <main className="auth-layout">
+        <section className="auth-brief" aria-hidden="true">
+          <div className="brand brand-light"><span className="brand-mark">X</span><span>xpense</span></div>
+          <div className="auth-brief-copy">
+            <p className="eyebrow">A calmer way to manage money</p>
+            <h1>See the whole picture, then make the next move.</h1>
+            <p>Accounts, daily activity, debts, and focused spending insight in one clear workspace.</p>
           </div>
-
-          <h1 className="auth-headline">{authTab === 'login' ? 'Welcome back' : 'Create account'}</h1>
-          <p className="auth-sub">
-            {authTab === 'login' ? 'Sign in to your financial dashboard.' : 'Start tracking your finances today.'}
-          </p>
-
-          {/* Notices */}
-          {error && (
-            <div className="notice notice-error" style={{ marginBottom: 16 }}>
-              <span>{error}</span>
-              <button className="btn-ghost" onClick={() => setError(null)}><X size={15} /></button>
-            </div>
-          )}
-          {authMsg && (
-            <div className="notice notice-success" style={{ marginBottom: 16 }}>
-              <span>{authMsg}</span>
-            </div>
-          )}
-
-          {/* Tab switch */}
-          <div className="seg" style={{ marginBottom: 24 }}>
-            <button className={`seg-btn ${authTab === 'login' ? 'active' : ''}`} onClick={() => { setAuthTab('login'); setError(null); }}>Sign In</button>
-            <button className={`seg-btn ${authTab === 'register' ? 'active' : ''}`} onClick={() => { setAuthTab('register'); setError(null); }}>Create Account</button>
+          <div className="auth-brief-points">
+            <span><Check size={16} /> Account-based transaction tracking</span>
+            <span><Check size={16} /> Private, balance-aware dashboards</span>
+            <span><Check size={16} /> Spending and average analysis</span>
           </div>
+        </section>
+        <section className="auth-panel">
+          <div className="auth-card">
+            <div className="brand brand-dark"><span className="brand-mark">X</span><span>xpense</span></div>
+            <p className="eyebrow">Your finance workspace</p>
+            <h2>{authTab === 'login' ? 'Welcome back' : 'Set up your workspace'}</h2>
+            <p className="auth-copy">{authTab === 'login' ? 'Sign in to continue where you left off.' : 'Create a secure account to start tracking clearly.'}</p>
 
-          {authTab === 'login' ? (
-            <form onSubmit={handleLogin} style={{ display: 'grid', gap: 14 }}>
-              <div>
-                <label className="form-label">Email</label>
-                <input type="email" placeholder="you@example.com" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required />
-              </div>
-              <div>
-                <label className="form-label">Password</label>
-                <input type="password" placeholder="••••••••" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required />
-              </div>
-              <button type="submit" className="btn btn-black btn-full" disabled={loading} style={{ marginTop: 6 }}>
-                {loading ? <RefreshCw size={16} className="spin" /> : 'Sign In'}
+            {error && <div className="notice notice-error"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
+            {authMessage && <div className="notice notice-success">{authMessage}</div>}
+
+            <div className="segmented-control auth-tabs">
+              <button className={authTab === 'login' ? 'active' : ''} type="button" onClick={() => { setAuthTab('login'); setError(null); }}>Sign in</button>
+              <button className={authTab === 'register' ? 'active' : ''} type="button" onClick={() => { setAuthTab('register'); setError(null); }}>Create account</button>
+            </div>
+
+            <form className="auth-form" onSubmit={authTab === 'login' ? handleLogin : handleRegister}>
+              {authTab === 'register' && <label>Full name<input value={authName} onChange={(event) => setAuthName(event.target.value)} placeholder="Your name" required /></label>}
+              <label>Email address<input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="you@example.com" required /></label>
+              <label>Password<input type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="••••••••" minLength={6} required /></label>
+              {authTab === 'register' && <label>Confirm password<input type="password" value={authConfirm} onChange={(event) => setAuthConfirm(event.target.value)} placeholder="••••••••" minLength={6} required /></label>}
+              <button className="button button-primary button-full" type="submit" disabled={loading}>
+                {loading ? <RefreshCw className="spin" size={17} /> : authTab === 'login' ? 'Sign in to xpense' : 'Create workspace'}
               </button>
             </form>
-          ) : (
-            <form onSubmit={handleRegister} style={{ display: 'grid', gap: 14 }}>
-              <div>
-                <label className="form-label">Full Name</label>
-                <input type="text" placeholder="John Doe" value={authName} onChange={e => setAuthName(e.target.value)} required />
-              </div>
-              <div>
-                <label className="form-label">Email</label>
-                <input type="email" placeholder="you@example.com" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required />
-              </div>
-              <div>
-                <label className="form-label">Password (min 6)</label>
-                <input type="password" placeholder="••••••••" value={authPassword} onChange={e => setAuthPassword(e.target.value)} minLength={6} required />
-              </div>
-              <div>
-                <label className="form-label">Confirm Password</label>
-                <input type="password" placeholder="••••••••" value={authConfirm} onChange={e => setAuthConfirm(e.target.value)} required />
-              </div>
-              <button type="submit" className="btn btn-black btn-full" disabled={loading} style={{ marginTop: 6 }}>
-                {loading ? <RefreshCw size={16} className="spin" /> : 'Create Account'}
-              </button>
-            </form>
-          )}
-        </div>
-      </div>
+          </div>
+        </section>
+      </main>
     );
   }
 
-  /* ── APP SHELL ───────────────────────────────────────────── */
-  const navItems: { id: Tab; icon: React.ReactNode; label: string }[] = [
-    { id: 'dashboard', icon: <Wallet size={18} />, label: 'Dashboard' },
-    { id: 'ledger',    icon: <List size={18} />,   label: 'Asset Ledger' },
-    { id: 'history',   icon: <BarChart3 size={18} />, label: 'Transaction History' },
-    { id: 'averages',  icon: <TrendingUp size={18} />, label: 'Averages Analysis' },
-  ];
-
   return (
-    <div className="app-shell">
-
-      {/* ── MOBILE HEADER ─────────────────────────────────── */}
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
       <header className="mobile-header">
-        <div className="mobile-logo">
-          <div className="mobile-logo-mark">X</div>
-          <span style={{ color: '#fff' }}>xpense</span>
-        </div>
-        <div className="mobile-header-right">
-          <button className="mobile-icon-btn" onClick={toggleBal} title={showBal ? 'Hide balances' : 'Show balances'}>
-            {showBal ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
-          <button className="mobile-icon-btn" onClick={handleLogout} title="Sign out">
-            <LogOut size={16} />
-          </button>
+        <div className="brand brand-light"><span className="brand-mark">X</span><span>xpense</span></div>
+        <div className="mobile-header-actions">
+          <button className="icon-button icon-button-dark" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+          <button className="icon-button icon-button-dark" type="button" onClick={() => setMobileNavOpen((open) => !open)} aria-label="Open navigation"><Menu size={20} /></button>
         </div>
       </header>
 
-      {/* ── MOBILE BOTTOM BAR ─────────────────────────────── */}
-      <nav className="bottom-bar">
-        {navItems.map(n => (
-          <button key={n.id} className={`bottom-tab ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
-            {n.icon}
-            <span>{n.id === 'dashboard' ? 'Home' : n.id === 'ledger' ? 'Ledger' : n.id === 'history' ? 'History' : 'Averages'}</span>
-          </button>
-        ))}
-      </nav>
-
-      {/* ── DESKTOP SIDEBAR ───────────────────────────────── */}
-      <aside className="sidebar">
-        <div className="sidebar-logo">
-          <div className="sidebar-logo-mark">X</div>
-          <span className="sidebar-logo-text">xpense</span>
-        </div>
-
-        <div className="sidebar-user">
-          <div className="sidebar-avatar">{currentUser.name.charAt(0).toUpperCase()}</div>
-          <div style={{ minWidth: 0 }}>
-            <div className="sidebar-user-name">{currentUser.name}</div>
-            <div className="sidebar-user-email">{currentUser.email}</div>
+      {mobileNavOpen && (
+        <div className="mobile-navigation">
+          <div className="mobile-navigation-card">
+            <div className="mobile-user"><span className="avatar">{currentUser.name.charAt(0).toUpperCase()}</span><div><strong>{currentUser.name}</strong><span>{currentUser.email}</span></div></div>
+            {navItems.map((item) => <button key={item.id} className={`mobile-nav-button ${page === item.id ? 'active' : ''}`} type="button" onClick={() => goToPage(item.id)}>{item.icon}<span>{item.label}</span></button>)}
+            <button className="mobile-nav-button signout" type="button" onClick={handleLogout}><LogOut size={18} /><span>Sign out</span></button>
           </div>
         </div>
+      )}
 
-        <div className="sidebar-nav-label">Navigation</div>
-
-        {navItems.map(n => (
-          <button key={n.id} className={`nav-btn ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
-            {n.icon}
-            <span>{n.label}</span>
+      <aside className="sidebar">
+        <div className="sidebar-top">
+          <div className="brand brand-light"><span className="brand-mark">X</span><span className="sidebar-copy">xpense</span></div>
+          <button className="sidebar-collapse" type="button" onClick={toggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            {sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
           </button>
-        ))}
-
-        <div className="sidebar-spacer" />
-
-        <button className="sidebar-signout" onClick={handleLogout}>
-          <LogOut size={17} />
-          <span>Sign Out</span>
+        </div>
+        <button className="sidebar-user" type="button" onClick={() => goToPage('profile')}>
+          <span className="avatar">{currentUser.name.charAt(0).toUpperCase()}</span>
+          <span className="sidebar-user-copy"><strong>{currentUser.name}</strong><small>{currentUser.email}</small></span>
         </button>
+        <p className="sidebar-section-label">Workspace</p>
+        <nav className="sidebar-navigation" aria-label="Main navigation">
+          {navItems.slice(0, 5).map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'active' : ''}`} type="button" onClick={() => goToPage(item.id)} title={sidebarCollapsed ? item.label : undefined}>{item.icon}<span className="sidebar-copy">{item.label}</span></button>)}
+        </nav>
+        <div className="sidebar-bottom">
+          <button className={`nav-button ${page === 'profile' ? 'active' : ''}`} type="button" onClick={() => goToPage('profile')} title={sidebarCollapsed ? 'Profile & settings' : undefined}><Settings2 size={18} /><span className="sidebar-copy">Profile & settings</span></button>
+          <button className="nav-button nav-signout" type="button" onClick={handleLogout} title={sidebarCollapsed ? 'Sign out' : undefined}><LogOut size={18} /><span className="sidebar-copy">Sign out</span></button>
+        </div>
       </aside>
 
-      {/* ── MAIN CONTENT ──────────────────────────────────── */}
-      <main className="main-content">
+      <main className="main-content" aria-busy={loading}>
+        {error && <div className="notice notice-error app-notice"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
 
-        {/* global notice */}
-        {error && (
-          <div className="notice notice-error">
-            <span>{error}</span>
-            <button className="btn-ghost" onClick={() => setError(null)}><X size={15} /></button>
-          </div>
-        )}
-
-        {loading && (
-          <div className="loading-row">
-            <RefreshCw size={15} className="spin" />
-            <span>Syncing data…</span>
-          </div>
-        )}
-
-        {/* ══════════════════════════════════════════════════
-            TAB 1 — DASHBOARD
-        ══════════════════════════════════════════════════ */}
-        {tab === 'dashboard' && (
+        {page === 'dashboard' && (
           <>
-            <div className="page-header">
-              <div>
-                <div className="page-eyebrow">Overview</div>
-                <h1 className="page-title">Dashboard</h1>
-                <p className="page-sub">Monitor your assets, track debtors, and log transactions.</p>
-              </div>
-              <div className="header-btns">
-                <button className="toggle-eye" onClick={toggleBal} title={showBal ? 'Hide balances' : 'Show balances'}>
-                  {showBal ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-                <button className="btn btn-outline" onClick={loadDashboard}><RefreshCw size={15} />Refresh</button>
-              </div>
-            </div>
+            <PageHeader eyebrow="Financial overview" title={`${greeting()}, ${currentUser.name.split(' ')[0]}`} description="A single, focused view of the money you have, owe, and are moving this month." actions={<><button className="icon-button" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button><button className="button button-secondary" type="button" onClick={() => void loadOverview()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} />Refresh</button></>} />
 
-            {/* Stats */}
-            <div className="stats-grid">
-              <div className="stat-card">
-                <div className="stat-card-top">
-                  <span className="stat-label">Liquid Assets</span>
-                  <div className="stat-icon"><Wallet size={16} /></div>
-                </div>
-                <div className="stat-value">{fmt(totalAssets, showBal)}</div>
-                <div className="stat-hint">Cash, bank & wallet balances</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-card-top">
-                  <span className="stat-label">Net Balance</span>
-                  <div className="stat-icon"><Coins size={16} /></div>
-                </div>
-                <div className="stat-value" style={{ color: netWorth >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmt(netWorth, showBal)}</div>
-                <div className="stat-hint">Assets + Lent − Borrowed</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-card-top">
-                  <span className="stat-label">Loans Lent</span>
-                  <div className="stat-icon"><ArrowUpRight size={16} /></div>
-                </div>
-                <div className="stat-value" style={{ color: 'var(--amber)' }}>{fmt(totalLent, showBal)}</div>
-                <div className="stat-hint">Outstanding money owed to you</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-card-top">
-                  <span className="stat-label">Borrowed</span>
-                  <div className="stat-icon"><ArrowDownRight size={16} /></div>
-                </div>
-                <div className="stat-value" style={{ color: 'var(--red)' }}>{fmt(totalBorrowed, showBal)}</div>
-                <div className="stat-hint">Money you owe to others</div>
-              </div>
-            </div>
+            <section className="balance-hero">
+              <div className="balance-hero-copy"><span className="hero-label">Estimated net worth</span><strong>{formatMoney(netWorth, showBalances)}</strong><p><span className="positive-dot" /> Updated from your accounts and outstanding debt</p></div>
+              <div className="hero-divider" />
+              <div className="balance-hero-metrics"><div><span>Available assets</span><strong>{formatMoney(totalAssets, showBalances, true)}</strong></div><div><span>Monthly net flow</span><strong className={periodIncome - periodExpenses >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(periodIncome - periodExpenses, showBalances, true)}</strong></div></div>
+              <div className="hero-actions"><button className="button button-light" type="button" onClick={() => setModal('income')}><TrendingUp size={16} />Add income</button><button className="button button-ghost-light" type="button" onClick={() => setModal('expense')}><TrendingDown size={16} />Add expense</button></div>
+            </section>
 
-            {/* Main grid */}
-            <div className="dashboard-grid">
+            <section className="metric-grid">
+              <article className="metric-card"><div className="metric-icon"><Landmark size={18} /></div><span>Accounts</span><strong>{formatMoney(totalAssets, showBalances)}</strong><p>{assets.length} tracked account{assets.length === 1 ? '' : 's'}</p></article>
+              <article className="metric-card"><div className="metric-icon metric-icon-amber"><ArrowUpRight size={18} /></div><span>Money owed to you</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong><p>{loans.filter((loan) => !loan.isSettled).length} open loan{loans.filter((loan) => !loan.isSettled).length === 1 ? '' : 's'}</p></article>
+              <article className="metric-card"><div className="metric-icon metric-icon-red"><ArrowDownRight size={18} /></div><span>Money you owe</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong><p>{borrowings.filter((borrowing) => !borrowing.isSettled).length} open borrowing{borrowings.filter((borrowing) => !borrowing.isSettled).length === 1 ? '' : 's'}</p></article>
+              <article className="metric-card"><div className="metric-icon metric-icon-green"><CalendarDays size={18} /></div><span>Spent this month</span><strong>{formatMoney(periodExpenses, showBalances)}</strong><p>{formatMoney(periodIncome, showBalances, true)} received</p></article>
+            </section>
 
-              {/* LEFT COLUMN */}
-              <div className="left-col">
-
-                {/* ASSETS */}
-                <div className="card">
-                  <div className="card-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className="card-icon"><Wallet size={16} /></div>
-                      <span className="card-title">Assets</span>
-                    </div>
-                    <button className="btn btn-black btn-sm" onClick={() => setAssetModal(true)}><Plus size={14} />Add Asset</button>
-                  </div>
-                  {assets.length === 0 ? (
-                    <div className="empty-state">No assets yet. Add a bank account, digital wallet, or cash on hand.</div>
-                  ) : (
-                    <div className="asset-grid">
-                      {assets.map(a => (
-                        <div key={a.id} className="asset-card">
-                          <div className="asset-card-top">
-                            {a.type === 'bank' && <CreditCard size={18} color="#111" />}
-                            {a.type === 'wallet' && <Wallet size={18} color="#555" />}
-                            {a.type === 'on_hand' && <Coins size={18} color="var(--green)" />}
-                            <span className={`asset-type-badge ${assetBadgeClass(a.type)}`}>{assetLabel(a.type)}</span>
-                          </div>
-                          <div className="asset-name">{a.name}</div>
-                          <div className="asset-balance">{fmt(Number(a.balance), showBal)}</div>
-                          <div className="asset-updated">Updated {new Date(a.updatedAt).toLocaleDateString()}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* DEBTOR TRACKING */}
-                <div className="card">
-                  <div className="card-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className="card-icon amber-icon"><Users size={16} /></div>
-                      <span className="card-title">Debtor Tracking — Money Lent</span>
-                    </div>
-                    <button className="btn btn-black btn-sm" onClick={() => setLoanModal(true)}><Plus size={14} />Record Loan</button>
-                  </div>
-                  {loans.length === 0 ? (
-                    <div className="empty-state">No loans recorded. Track money you've lent to others.</div>
-                  ) : (
-                    <div className="record-list">
-                      {loans.map(l => (
-                        <div key={l.id} className="record-row">
-                          <div className="record-info">
-                            <div className={`record-name ${l.isSettled ? 'settled-name' : ''}`}>
-                              {l.debtorName}
-                              {l.isSettled && <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--green)', fontWeight: 700 }}>✓ Settled</span>}
-                            </div>
-                            <div className="record-meta">{l.date}{l.description ? ` · ${l.description}` : ''}</div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span className={`record-amount ${l.isSettled ? 'amount-muted' : 'amount-amber'}`}>{fmt(Number(l.amount), showBal)}</span>
-                            <button className={`settle-pill ${l.isSettled ? 'settled' : ''}`} onClick={() => handleSettleLoan(l.id)}>
-                              {l.isSettled ? 'Reopen' : 'Settle'}
-                            </button>
-                            <button className="btn-ghost danger" onClick={() => handleDeleteLoan(l.id)}><Trash2 size={14} /></button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* BORROWED MONEY */}
-                <div className="card">
-                  <div className="card-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className="card-icon red-icon"><ArrowDownRight size={16} /></div>
-                      <span className="card-title">Borrowed Money — You Owe</span>
-                    </div>
-                    <button className="btn btn-black btn-sm" onClick={() => setBorrowModal(true)}><Plus size={14} />Record</button>
-                  </div>
-                  {borrowings.length === 0 ? (
-                    <div className="empty-state">No borrowings recorded. Track money you owe to others.</div>
-                  ) : (
-                    <div className="record-list">
-                      {borrowings.map(b => (
-                        <div key={b.id} className="record-row">
-                          <div className="record-info">
-                            <div className={`record-name ${b.isSettled ? 'settled-name' : ''}`}>
-                              {b.lenderName}
-                              {b.isSettled && <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--green)', fontWeight: 700 }}>✓ Paid</span>}
-                            </div>
-                            <div className="record-meta">{b.date}{b.description ? ` · ${b.description}` : ''}</div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span className={`record-amount ${b.isSettled ? 'amount-muted' : 'amount-red'}`}>{fmt(Number(b.amount), showBal)}</span>
-                            <button className={`settle-pill ${b.isSettled ? 'settled' : ''}`} onClick={() => handleSettleBorrowing(b.id)}>
-                              {b.isSettled ? 'Reopen' : 'Mark Paid'}
-                            </button>
-                            <button className="btn-ghost danger" onClick={() => handleDeleteBorrowing(b.id)}><Trash2 size={14} /></button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* RIGHT COLUMN — LOG FORMS */}
-              <div className="right-col">
-
-                {/* LOG INCOME */}
-                <div className="card">
-                  <div className="card-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className="card-icon green-icon"><TrendingUp size={16} /></div>
-                      <span className="card-title">Log Income</span>
-                    </div>
-                  </div>
-                  <div className="log-form">
-                    {assets.length === 0 ? (
-                      <div className="warn-box">Add an asset first before logging income.</div>
-                    ) : (
-                      <form onSubmit={handleLogIncome} className="form-grid">
-                        <div>
-                          <label className="form-label">Source / Title *</label>
-                          <input placeholder="e.g. Salary, Freelance" value={incomeForm.source} onChange={e => setIncomeForm(p => ({ ...p, source: e.target.value }))} required />
-                        </div>
-                        <div className="form-row">
-                          <div>
-                            <label className="form-label">Amount ($) *</label>
-                            <input type="number" step="0.01" min="0.01" placeholder="0.00" value={incomeForm.amount} onChange={e => setIncomeForm(p => ({ ...p, amount: e.target.value }))} required />
-                          </div>
-                          <div>
-                            <label className="form-label">Date *</label>
-                            <input type="date" value={incomeForm.date} onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))} required />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="form-label">Destination Asset *</label>
-                          <select value={incomeForm.assetId} onChange={e => setIncomeForm(p => ({ ...p, assetId: e.target.value }))} required>
-                            {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="form-label">Notes</label>
-                          <input placeholder="Optional description" value={incomeForm.description} onChange={e => setIncomeForm(p => ({ ...p, description: e.target.value }))} />
-                        </div>
-                        <button type="submit" className="btn btn-black btn-full" style={{ background: 'var(--green)', borderColor: 'var(--green)' }}>
-                          <TrendingUp size={15} /> Log Credit
-                        </button>
-                      </form>
-                    )}
-                  </div>
-                </div>
-
-                {/* LOG EXPENSE */}
-                <div className="card">
-                  <div className="card-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className="card-icon red-icon"><TrendingDown size={16} /></div>
-                      <span className="card-title">Log Expense</span>
-                    </div>
-                  </div>
-                  <div className="log-form">
-                    {assets.length === 0 ? (
-                      <div className="warn-box">Add an asset first before logging expenses.</div>
-                    ) : (
-                      <form onSubmit={handleLogExpense} className="form-grid">
-                        <div>
-                          <label className="form-label">Expense Title *</label>
-                          <input placeholder="e.g. Grocery Shop, Rent" value={expenseForm.title} onChange={e => setExpenseForm(p => ({ ...p, title: e.target.value }))} required />
-                        </div>
-                        <div className="form-row">
-                          <div>
-                            <label className="form-label">Amount ($) *</label>
-                            <input type="number" step="0.01" min="0.01" placeholder="0.00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} required />
-                          </div>
-                          <div>
-                            <label className="form-label">Category</label>
-                            <select value={expenseForm.category} onChange={e => setExpenseForm(p => ({ ...p, category: e.target.value }))}>
-                              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="form-row">
-                          <div>
-                            <label className="form-label">Date *</label>
-                            <input type="date" value={expenseForm.date} onChange={e => setExpenseForm(p => ({ ...p, date: e.target.value }))} required />
-                          </div>
-                          <div>
-                            <label className="form-label">Source Asset *</label>
-                            <select value={expenseForm.assetId} onChange={e => setExpenseForm(p => ({ ...p, assetId: e.target.value }))} required>
-                              {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="form-label">Notes</label>
-                          <input placeholder="Optional description" value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} />
-                        </div>
-                        <button type="submit" className="btn btn-black btn-full" style={{ background: 'var(--red)', borderColor: 'var(--red)' }}>
-                          <TrendingDown size={15} /> Log Debit
-                        </button>
-                      </form>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <section className="dashboard-grid">
+              <article className="panel span-two">
+                <div className="panel-header"><div><p className="panel-kicker">Cash position</p><h2>Accounts at a glance</h2></div><button className="text-button" type="button" onClick={() => goToPage('accounts')}>Manage accounts <ChevronRight size={16} /></button></div>
+                {assets.length ? <div className="account-summary-list">{assets.slice(0, 4).map((asset) => <div className="account-summary-row" key={asset.id}><div className={`account-icon account-icon-${asset.type}`}><AssetIcon type={asset.type} /></div><div><strong>{asset.name}</strong><span>{assetLabel(asset.type)}</span></div><strong className="account-summary-balance">{formatMoney(Number(asset.balance), showBalances)}</strong></div>)}</div> : <EmptyState icon={<Landmark size={22} />} title="Start with an account" copy="Add a bank account, wallet, or cash balance to ground your dashboard." action={<button className="button button-primary button-small" type="button" onClick={openNewAsset}><Plus size={15} />Add account</button>} />}
+              </article>
+              <article className="panel cash-flow-panel"><div className="panel-header"><div><p className="panel-kicker">This month</p><h2>Cash flow</h2></div><CalendarDays size={19} /></div><div className="cash-flow-total"><span>Net movement</span><strong className={periodIncome - periodExpenses >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(periodIncome - periodExpenses, showBalances)}</strong></div><div className="flow-row"><span><i className="flow-dot flow-dot-income" />Income</span><strong>{formatMoney(periodIncome, showBalances)}</strong></div><div className="flow-row"><span><i className="flow-dot flow-dot-expense" />Expenses</span><strong>{formatMoney(periodExpenses, showBalances)}</strong></div></article>
+              <article className="panel span-two"><div className="panel-header"><div><p className="panel-kicker">Latest movement</p><h2>Recent activity</h2></div><button className="text-button" type="button" onClick={() => goToPage('activity')}>All activity <ChevronRight size={16} /></button></div>{recentActivity.length ? <div className="activity-list">{recentActivity.map((item) => <div className="activity-row" key={`${item.kind}-${item.id}`}><div className={`transaction-icon ${item.kind}`} aria-hidden="true">{item.kind === 'credit' ? <ArrowUpRight size={17} /> : <ArrowDownRight size={17} />}</div><div className="activity-copy"><strong>{item.title}</strong><span>{item.assetName} · {formatDate(item.date)}</span></div><strong className={item.kind === 'credit' ? 'amount-positive' : 'amount-negative'}>{item.kind === 'credit' ? '+' : '−'}{formatMoney(item.amount, showBalances)}</strong></div>)}</div> : <EmptyState icon={<Receipt size={22} />} title="No activity yet" copy="Income and expense records will appear here as you add them." action={<button className="button button-secondary button-small" type="button" onClick={() => setModal('expense')}><Plus size={15} />Add an entry</button>} />}</article>
+              <article className="panel debt-pulse"><div className="panel-header"><div><p className="panel-kicker">Debt pulse</p><h2>Keep obligations clear</h2></div><CircleDollarSign size={19} /></div><div className="debt-pulse-row"><span>To collect</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong></div><div className="debt-pulse-row"><span>To repay</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong></div><button className="button button-secondary button-small button-full" type="button" onClick={() => goToPage('debts')}>Open debt book</button></article>
+            </section>
           </>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB 2 — ASSET LEDGER
-        ══════════════════════════════════════════════════ */}
-        {tab === 'ledger' && (
+        {page === 'activity' && (
           <>
-            <div className="page-header">
-              <div>
-                <div className="page-eyebrow">Ledger</div>
-                <h1 className="page-title">Asset Transaction Ledger</h1>
-                <p className="page-sub">View all credits and debits linked to your asset accounts.</p>
-              </div>
-              <div className="header-btns">
-                <button className="toggle-eye" onClick={toggleBal}>{showBal ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                <button className="btn btn-outline" onClick={loadLedger}><RefreshCw size={15} />Refresh</button>
-              </div>
-            </div>
-
-            {/* Filters */}
-            <div className="filter-bar">
-              <div className="form-group" style={{ minWidth: 200, flex: '1.5 1 200px' }}>
-                <span>Filter by Asset</span>
-                <select value={ledgerAsset} onChange={e => setLedgerAsset(e.target.value)}>
-                  <option value="all">All Assets</option>
-                  {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <span>From Date</span>
-                <input type="date" value={ledgerDate.from} onChange={e => setLedgerDate(p => ({ ...p, from: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <span>To Date</span>
-                <input type="date" value={ledgerDate.to} onChange={e => setLedgerDate(p => ({ ...p, to: e.target.value }))} />
-              </div>
-              <button className="btn btn-black" onClick={loadLedger}><RefreshCw size={15} />Reload</button>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <span className="card-title">Unified Transactions ({ledgerItems.length})</span>
-              </div>
-              <div className="card-body" style={{ padding: 0 }}>
-                <div className="table-scroll">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Title / Source</th>
-                        <th>Type</th>
-                        <th>Asset Account</th>
-                        <th>Date</th>
-                        <th>Amount</th>
-                        <th>Notes</th>
-                        <th className="right-col-cell">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ledgerItems.length === 0 ? (
-                        <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--text-3)' }}>No transactions match the selected filters.</td></tr>
-                      ) : ledgerItems.map(it => (
-                        <tr key={it.id}>
-                          <td style={{ fontWeight: 600 }}>{it.title}</td>
-                          <td><span className={`tag tag-${it.type}`}>{it.type === 'credit' ? '↑ Credit' : '↓ Debit'}</span></td>
-                          <td><span className={`tag tag-${it.assetType}`}>{it.assetName}</span></td>
-                          <td style={{ color: 'var(--text-3)' }}>{it.date}</td>
-                          <td className={`strong ${it.type === 'credit' ? 'amount-green' : 'amount-red'}`}>
-                            {it.type === 'credit' ? '+' : '−'}{fmt(it.amount, showBal)}
-                          </td>
-                          <td style={{ color: 'var(--text-3)' }}>{it.description || '—'}</td>
-                          <td className="right-col-cell">
-                            <button className="btn-ghost danger" onClick={() => handleDeleteLedger(it)}><Trash2 size={14} /></button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <PageHeader eyebrow="Transactions" title="Money in, money out" description="Capture activity against the account it belongs to, then find it quickly when you need it." actions={<><button className="button button-secondary" type="button" onClick={() => setModal('income')}><Plus size={16} />Income</button><button className="button button-primary" type="button" onClick={() => setModal('expense')}><Plus size={16} />Expense</button></>} />
+            <section className="filter-panel"><div className="filter-label"><ListFilter size={17} /><span>Filter activity</span></div><div className="segmented-control"><button className={activityType === 'all' ? 'active' : ''} type="button" onClick={() => setActivityType('all')}>All</button><button className={activityType === 'credit' ? 'active' : ''} type="button" onClick={() => setActivityType('credit')}>Income</button><button className={activityType === 'debit' ? 'active' : ''} type="button" onClick={() => setActivityType('debit')}>Expenses</button></div><label className="filter-field"><span>Account</span><select value={activityAsset} onChange={(event) => setActivityAsset(event.target.value)}><option value="all">All accounts</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label className="filter-field"><span>From</span><input type="date" value={activityDates.from} onChange={(event) => setActivityDates((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="date" value={activityDates.to} onChange={(event) => setActivityDates((range) => ({ ...range, to: event.target.value }))} /></label></section>
+            <section className="panel table-panel"><div className="panel-header"><div><p className="panel-kicker">Ledger</p><h2>{activityItems.length} matching transaction{activityItems.length === 1 ? '' : 's'}</h2></div><button className="icon-button" type="button" onClick={() => void loadOverview()} aria-label="Refresh activity"><RefreshCw className={loading ? 'spin' : ''} size={17} /></button></div>{activityItems.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Transaction</th><th>Account</th><th>Date</th><th>Notes</th><th className="align-right">Amount</th><th aria-label="Actions" /></tr></thead><tbody>{activityItems.map((item) => <tr key={`${item.kind}-${item.id}`}><td><div className="transaction-cell"><span className={`transaction-icon ${item.kind}`}>{item.kind === 'credit' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}</span><div><strong>{item.title}</strong><small>{item.kind === 'credit' ? 'Income' : 'Expense'}</small></div></div></td><td><span className="account-table-cell"><AssetIcon type={item.assetType} size={15} />{item.assetName}</span></td><td>{formatDate(item.date)}</td><td className="muted-cell">{item.description || '—'}</td><td className={`align-right amount-cell ${item.kind === 'credit' ? 'amount-positive' : 'amount-negative'}`}>{item.kind === 'credit' ? '+' : '−'}{formatMoney(item.amount, showBalances)}</td><td><button className="icon-button danger-button" type="button" onClick={() => void deleteActivity(item.id, item.kind)} aria-label={`Delete ${item.title}`}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={<Receipt size={22} />} title="Nothing matches these filters" copy="Try a different account or date range, or record a new transaction." />}</section>
           </>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB 3 — TRANSACTION HISTORY
-        ══════════════════════════════════════════════════ */}
-        {tab === 'history' && (
+        {page === 'accounts' && (
           <>
-            <div className="page-header">
-              <div>
-                <div className="page-eyebrow">Analytics</div>
-                <h1 className="page-title">Transaction History</h1>
-                <p className="page-sub">Expense-only analytics with spending volume and category breakdown.</p>
-              </div>
-              <div className="header-btns">
-                <button className="toggle-eye" onClick={toggleBal}>{showBal ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-              </div>
-            </div>
-
-            {/* Filters */}
-            <div className="filter-bar">
-              <div className="form-group" style={{ flex: '1.5 1 260px' }}>
-                <span>Filter Mode</span>
-                <div className="seg">
-                  {(['day','month','year'] as const).map(f => (
-                    <button key={f} className={`seg-btn ${historyFilter === f ? 'active' : ''}`}
-                      onClick={() => {
-                        setHistoryFilter(f);
-                        // reset the selected mode back to defaults when switching
-                        if (f === 'day')   setDayRange(defaultRanges.day);
-                        if (f === 'month') setMonthRange(defaultRanges.month);
-                        if (f === 'year')  setYearRange(defaultRanges.year);
-                      }}>
-                      {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {historyFilter === 'day' && (<>
-                <div className="form-group">
-                  <span>From Day</span>
-                  <input type="date" value={dayRange.from}
-                    onChange={e => setDayRange(p => ({ ...p, from: e.target.value }))}
-                    max={dayRange.to || todayStr()} />
-                </div>
-                <div className="form-group">
-                  <span>To Day</span>
-                  <input type="date" value={dayRange.to}
-                    onChange={e => setDayRange(p => ({ ...p, to: e.target.value }))}
-                    min={dayRange.from} max={todayStr()} />
-                </div>
-              </>)}
-              {historyFilter === 'month' && (<>
-                <div className="form-group">
-                  <span>From Month</span>
-                  <input type="month" value={monthRange.from}
-                    onChange={e => setMonthRange(p => ({ ...p, from: e.target.value }))}
-                    max={monthRange.to || thisMonth()} />
-                </div>
-                <div className="form-group">
-                  <span>To Month</span>
-                  <input type="month" value={monthRange.to}
-                    onChange={e => setMonthRange(p => ({ ...p, to: e.target.value }))}
-                    min={monthRange.from} max={thisMonth()} />
-                </div>
-              </>)}
-              {historyFilter === 'year' && (<>
-                <div className="form-group">
-                  <span>From Year</span>
-                  <input type="number" min="2000" max={yearRange.to || thisYear()} placeholder="e.g. 2024"
-                    value={yearRange.from}
-                    onChange={e => setYearRange(p => ({ ...p, from: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <span>To Year</span>
-                  <input type="number" min={yearRange.from || '2000'} max="2099" placeholder="e.g. 2026"
-                    value={yearRange.to}
-                    onChange={e => setYearRange(p => ({ ...p, to: e.target.value }))} />
-                </div>
-              </>)}
-
-              <button className="btn btn-black" onClick={loadHistory}><RefreshCw size={15} />Apply</button>
-
-              {historyData && (
-                <div className="filter-total">
-                  <div className="filter-total-label">Total Spend</div>
-                  <div className="filter-total-value amount-red">{fmt(historyData.totalSpending, showBal)}</div>
-                </div>
-              )}
-            </div>
-
-            {/* Charts */}
-            {historyData && (
-              <div className="charts-pair">
-                {/* Bar chart */}
-                <div className="card">
-                  <div className="card-header"><span className="card-title">Spending Volume Over Time</span></div>
-                  <div className="card-body" style={{ overflow: 'hidden' }}>
-                    <div className="chart-wrap h380">
-                      <ResponsiveContainer width="100%" height={380}>
-                        <BarChart data={historyData.timelineData} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
-                          <CartesianGrid strokeDasharray="4 4" stroke="#f0f0f0" vertical={false} />
-                          <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#888' }} axisLine={false} tickLine={false}
-                            tickFormatter={p => fmtPeriodTick(p, historyFilter)}
-                            angle={historyFilter === 'day' ? -35 : 0}
-                            textAnchor={historyFilter === 'day' ? 'end' : 'middle'}
-                            interval={historyFilter === 'day' ? 'preserveStartEnd' : 0} />
-                          <YAxis tick={{ fontSize: 12, fill: '#888' }} axisLine={false} tickLine={false} width={60} tickFormatter={v => `$${v}`} />
-                          <Tooltip content={<ChartTooltip visible={showBal} />} />
-                          <Bar dataKey="amount" fill="#0a0a0a" radius={[5, 5, 0, 0]} maxBarSize={52} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pie chart */}
-                <div className="card">
-                  <div className="card-header"><span className="card-title">Category Breakdown</span></div>
-                  <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16, overflow: 'hidden' }}>
-                    <div className="chart-wrap pie-h">
-                      <ResponsiveContainer width="100%" height={300}>
-                        <PieChart>
-                          <Pie data={historyData.categoryBreakdown} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} dataKey="amount" nameKey="category">
-                            {historyData.categoryBreakdown.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                          </Pie>
-                          <Tooltip formatter={(v: any) => showBal ? `$${Number(v).toFixed(2)}` : '••••••'} contentStyle={{ borderRadius: 8, border: '1px solid #e0e0e0' }} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="chart-legend">
-                      {historyData.categoryBreakdown.map((item, i) => (
-                        <div key={item.category} className="legend-item">
-                          <span className="legend-dot" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                          <span>{item.category}: {showBal ? `${item.percentage}%` : '••%'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Table */}
-            <div className="card">
-              <div className="card-header"><span className="card-title">Expense Records</span></div>
-              <div className="card-body" style={{ padding: 0 }}>
-                <div className="table-scroll">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Title</th><th>Category</th><th>Asset</th><th>Date</th><th>Amount</th><th>Notes</th><th className="right-col-cell">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(!historyData || historyData.transactions.length === 0) ? (
-                        <tr><td colSpan={7} style={{ textAlign: 'center', padding: 28, color: 'var(--text-3)' }}>No expenses in this range.</td></tr>
-                      ) : historyData.transactions.map(t => (
-                        <tr key={t.id}>
-                          <td style={{ fontWeight: 600 }}>{t.title}</td>
-                          <td><span className="tag">{t.category}</span></td>
-                          <td><span className={`tag tag-${t.asset?.type}`}>{t.asset?.name || '—'}</span></td>
-                          <td style={{ color: 'var(--text-3)' }}>{t.date}</td>
-                          <td className="strong amount-red">{fmt(Number(t.amount), showBal)}</td>
-                          <td style={{ color: 'var(--text-3)' }}>{t.description || '—'}</td>
-                          <td className="right-col-cell">
-                            <button className="btn-ghost danger" onClick={() => handleDeleteExpense(t.id)}><Trash2 size={14} /></button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <PageHeader eyebrow="Accounts" title="Your money, organised" description="Keep bank, wallet, and cash balances separate so every transaction has a clear home." actions={<button className="button button-primary" type="button" onClick={openNewAsset}><Plus size={16} />Add account</button>} />
+            <section className="accounts-summary"><div><span>Available across all accounts</span><strong>{formatMoney(totalAssets, showBalances)}</strong></div><p><Building2 size={18} /> {assets.length} account{assets.length === 1 ? '' : 's'} connected to your workspace</p></section>
+            {assets.length ? <section className="account-grid">{assets.map((asset) => <article className={`account-card account-card-${asset.type}`} key={asset.id}><div className="account-card-top"><div className={`account-icon account-icon-${asset.type}`}><AssetIcon type={asset.type} size={19} /></div><button className="icon-button" type="button" onClick={() => openEditAsset(asset)} aria-label={`Edit ${asset.name}`}><MoreHorizontal size={19} /></button></div><p>{assetLabel(asset.type)}</p><h2>{asset.name}</h2><strong>{formatMoney(Number(asset.balance), showBalances)}</strong><footer><span>Updated {formatDate(asset.updatedAt)}</span><button className="text-button" type="button" onClick={() => openEditAsset(asset)}><Pencil size={14} />Edit</button></footer></article>)}</section> : <section className="panel"><EmptyState icon={<Landmark size={23} />} title="Add your first account" copy="A bank account, wallet, or cash balance makes the rest of your workspace useful." action={<button className="button button-primary" type="button" onClick={openNewAsset}><Plus size={16} />Add account</button>} /></section>}
+            <section className="panel account-guide"><div className="guide-icon"><CreditCard size={18} /></div><div><h2>Keep balances trustworthy</h2><p>Use an account’s edit action after reconciling a statement or correcting a cash balance. Income and expenses update their selected account automatically.</p></div></section>
           </>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB 4 — AVERAGES ANALYSIS
-        ══════════════════════════════════════════════════ */}
-        {tab === 'averages' && (
+        {page === 'debts' && (
           <>
-            <div className="page-header">
-              <div>
-                <div className="page-eyebrow">Analytics</div>
-                <h1 className="page-title">Averages Analysis</h1>
-                <p className="page-sub">Period-over-period spending trends and mean expense calculations.</p>
-              </div>
-              <div className="header-btns">
-                <button className="toggle-eye" onClick={toggleBal}>{showBal ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-              </div>
-            </div>
+            <PageHeader eyebrow="Debt book" title="Know what is outstanding" description="Keep money you have lent and money you owe distinct, visible, and easy to settle." actions={<><button className="button button-secondary" type="button" onClick={() => setModal('loan')}><Plus size={16} />Money lent</button><button className="button button-primary" type="button" onClick={() => setModal('borrowing')}><Plus size={16} />Money borrowed</button></>} />
+            <section className="debt-summary-grid"><article className="debt-summary debt-summary-lent"><span>Outstanding to collect</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong><p>{loans.filter((loan) => !loan.isSettled).length} active loan{loans.filter((loan) => !loan.isSettled).length === 1 ? '' : 's'}</p></article><article className="debt-summary debt-summary-borrowed"><span>Outstanding to repay</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong><p>{borrowings.filter((borrowing) => !borrowing.isSettled).length} active borrowing{borrowings.filter((borrowing) => !borrowing.isSettled).length === 1 ? '' : 's'}</p></article></section>
+            <section className="debt-grid"><article className="panel debt-panel"><div className="panel-header"><div><p className="panel-kicker">Receivable</p><h2>Money you lent</h2></div><button className="icon-button" type="button" onClick={() => setModal('loan')} aria-label="Record money lent"><Plus size={18} /></button></div>{loans.length ? <div className="debt-list">{loans.map((loan) => <div className="debt-row" key={loan.id}><div className="debt-person"><span className="person-avatar">{loan.debtorName.charAt(0).toUpperCase()}</span><div><strong>{loan.debtorName}</strong><span>{formatDate(loan.date)}{loan.description ? ` · ${loan.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={loan.isSettled ? 'amount-muted' : 'amount-amber'}>{formatMoney(Number(loan.amount), showBalances)}</strong><button className={`status-button ${loan.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleLoan(loan.id)}>{loan.isSettled ? <><Check size={14} />Settled</> : 'Settle'}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteLoan(loan.id)} aria-label={`Delete loan for ${loan.debtorName}`}><Trash2 size={16} /></button></div></div>)}</div> : <EmptyState icon={<ArrowUpRight size={22} />} title="No loans recorded" copy="Record money you lend to make follow-up simple." action={<button className="button button-secondary button-small" type="button" onClick={() => setModal('loan')}><Plus size={15} />Record loan</button>} />}</article>
+              <article className="panel debt-panel"><div className="panel-header"><div><p className="panel-kicker">Payable</p><h2>Money you borrowed</h2></div><button className="icon-button" type="button" onClick={() => setModal('borrowing')} aria-label="Record money borrowed"><Plus size={18} /></button></div>{borrowings.length ? <div className="debt-list">{borrowings.map((borrowing) => <div className="debt-row" key={borrowing.id}><div className="debt-person"><span className="person-avatar person-avatar-red">{borrowing.lenderName.charAt(0).toUpperCase()}</span><div><strong>{borrowing.lenderName}</strong><span>{formatDate(borrowing.date)}{borrowing.description ? ` · ${borrowing.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={borrowing.isSettled ? 'amount-muted' : 'amount-negative'}>{formatMoney(Number(borrowing.amount), showBalances)}</strong><button className={`status-button ${borrowing.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleBorrowing(borrowing.id)}>{borrowing.isSettled ? <><Check size={14} />Paid</> : 'Mark paid'}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteBorrowing(borrowing.id)} aria-label={`Delete borrowing from ${borrowing.lenderName}`}><Trash2 size={16} /></button></div></div>)}</div> : <EmptyState icon={<ArrowDownRight size={22} />} title="No borrowings recorded" copy="Record money you owe so repayment never gets lost." action={<button className="button button-primary button-small" type="button" onClick={() => setModal('borrowing')}><Plus size={15} />Record borrowing</button>} />}</article></section>
+          </>
+        )}
 
-            {/* Filters */}
-            <div className="filter-bar">
-              <div className="form-group" style={{ flex: '1.5 1 260px' }}>
-                <span>Comparison Period</span>
-                <div className="seg">
-                  {(['day','month','year'] as const).map(f => (
-                    <button key={f} className={`seg-btn ${avgFilter === f ? 'active' : ''}`}
-                      onClick={() => { setAvgFilter(f); setAvgRange(defaultRanges[f]); }}>
-                      {f === 'day' ? 'Daily' : f === 'month' ? 'Monthly' : 'Yearly'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="form-group">
-                <span>From {avgFilter === 'day' ? 'Date' : avgFilter === 'month' ? 'Month' : 'Year'}</span>
-                <input type={avgFilter === 'day' ? 'date' : avgFilter === 'month' ? 'month' : 'number'}
-                  placeholder={avgFilter === 'year' ? 'e.g. 2024' : ''}
-                  value={avgRange.from}
-                  max={avgRange.to || (avgFilter === 'day' ? todayStr() : avgFilter === 'month' ? thisMonth() : thisYear())}
-                  onChange={e => setAvgRange(p => ({ ...p, from: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <span>To {avgFilter === 'day' ? 'Date' : avgFilter === 'month' ? 'Month' : 'Year'}</span>
-                <input type={avgFilter === 'day' ? 'date' : avgFilter === 'month' ? 'month' : 'number'}
-                  placeholder={avgFilter === 'year' ? 'e.g. 2026' : ''}
-                  value={avgRange.to}
-                  min={avgRange.from}
-                  max={avgFilter === 'day' ? todayStr() : avgFilter === 'month' ? thisMonth() : thisYear()}
-                  onChange={e => setAvgRange(p => ({ ...p, to: e.target.value }))} />
-              </div>
-              <button className="btn btn-black" onClick={loadAverages}><RefreshCw size={15} />Calculate</button>
-              {averagesData && (
-                <div className="filter-total">
-                  <div className="filter-total-label">Mean / {avgFilter}</div>
-                  <div className="filter-total-value">{fmt(averagesData.meanValue, showBal)}</div>
-                </div>
-              )}
-            </div>
+        {page === 'insights' && (
+          <>
+            <PageHeader eyebrow="Insights" title="Understand your spending rhythm" description="Explore the volume and shape of expenses without crowding your everyday dashboard." actions={<button className="icon-button" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
+            <section className="insight-switch"><button className={insightMode === 'history' ? 'active' : ''} type="button" onClick={() => setInsightMode('history')}><BarChart3 size={17} />Spending history</button><button className={insightMode === 'averages' ? 'active' : ''} type="button" onClick={() => setInsightMode('averages')}><TrendingUp size={17} />Averages</button></section>
+            {insightMode === 'history' ? <>
+              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Time period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={historyFilter === mode ? 'active' : ''} type="button" onClick={() => { setHistoryFilter(mode); if (mode === 'day') setDayRange(defaultRanges.day); if (mode === 'month') setMonthRange(defaultRanges.month); if (mode === 'year') setYearRange(defaultRanges.year); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div>{historyFilter === 'day' && <><label className="filter-field"><span>From</span><input type="date" value={dayRange.from} max={dayRange.to} onChange={(event) => setDayRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="date" value={dayRange.to} min={dayRange.from} onChange={(event) => setDayRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'month' && <><label className="filter-field"><span>From</span><input type="month" value={monthRange.from} max={monthRange.to} onChange={(event) => setMonthRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="month" value={monthRange.to} min={monthRange.from} onChange={(event) => setMonthRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'year' && <><label className="filter-field"><span>From</span><input type="number" min="2000" value={yearRange.from} onChange={(event) => setYearRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="number" min={yearRange.from} value={yearRange.to} onChange={(event) => setYearRange((range) => ({ ...range, to: event.target.value }))} /></label></>}<button className="button button-secondary button-small" type="button" onClick={() => void loadHistory()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
+              {historyData ? <><section className="insight-stat-row"><div><span>Total spend in range</span><strong className="amount-negative">{formatMoney(historyData.totalSpending, showBalances)}</strong></div><p>Expenses only · {historyData.transactions.length} recorded transaction{historyData.transactions.length === 1 ? '' : 's'}</p></section><section className="chart-grid"><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Volume</p><h2>Spending over time</h2></div></div><div className="chart-area"><ResponsiveContainer width="100%" height={300}><BarChart data={historyData.timelineData} margin={{ top: 8, right: 5, left: -18, bottom: 25 }}><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e9eceb" /><XAxis dataKey="period" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatTick(value, historyFilter)} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatMoney(Number(value), showBalances, true)} /><Tooltip content={<ChartTooltip visible={showBalances} />} /><Bar dataKey="amount" fill="#0e7a3c" radius={[6, 6, 0, 0]} maxBarSize={52} /></BarChart></ResponsiveContainer></div></article><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Distribution</p><h2>Where it went</h2></div></div>{historyData.categoryBreakdown.length ? <div className="category-chart"><ResponsiveContainer width="100%" height={245}><PieChart><Pie data={historyData.categoryBreakdown} dataKey="amount" nameKey="category" innerRadius={62} outerRadius={94} paddingAngle={3}>{historyData.categoryBreakdown.map((_, index) => <Cell fill={PIE_COLORS[index % PIE_COLORS.length]} key={index} />)}</Pie><Tooltip formatter={(value) => formatMoney(Number(value), showBalances)} /></PieChart></ResponsiveContainer><div className="category-legend">{historyData.categoryBreakdown.map((item, index) => <div key={item.category}><span style={{ background: PIE_COLORS[index % PIE_COLORS.length] }} /><span>{item.category}</span><strong>{showBalances ? `${item.percentage}%` : '••%'}</strong></div>)}</div></div> : <EmptyState icon={<BarChart3 size={22} />} title="No category data yet" copy="Your spending distribution will appear after you add expenses." />}</article></section><section className="panel table-panel"><div className="panel-header"><div><p className="panel-kicker">Expense records</p><h2>Transactions in this range</h2></div></div>{historyData.transactions.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Expense</th><th>Category</th><th>Account</th><th>Date</th><th className="align-right">Amount</th><th aria-label="Actions" /></tr></thead><tbody>{historyData.transactions.map((expense) => <tr key={expense.id}><td><div className="transaction-cell"><span className="transaction-icon debit"><TrendingDown size={16} /></span><div><strong>{expense.title}</strong><small>{expense.description || 'Expense'}</small></div></div></td><td><span className="category-chip">{expense.category}</span></td><td><span className="account-table-cell"><AssetIcon type={expense.asset?.type || 'bank'} size={15} />{expense.asset?.name || 'Unknown account'}</span></td><td>{formatDate(expense.date)}</td><td className="align-right amount-cell amount-negative">−{formatMoney(Number(expense.amount), showBalances)}</td><td><button className="icon-button danger-button" type="button" onClick={() => void deleteExpenseFromHistory(expense.id)} aria-label={`Delete ${expense.title}`}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={<Receipt size={22} />} title="No expenses in this period" copy="Change the period or add an expense to begin analysing it." />}</section></> : <section className="panel"><EmptyState icon={<RefreshCw className={loading ? 'spin' : ''} size={22} />} title="Loading your history" copy="Your spending picture is being prepared." /></section>}
+            </> : <>
+              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Comparison period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={averageFilter === mode ? 'active' : ''} type="button" onClick={() => { setAverageFilter(mode); setAverageRange(defaultRanges[mode]); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div><label className="filter-field"><span>From</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} value={averageRange.from} onChange={(event) => setAverageRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} min={averageRange.from} value={averageRange.to} onChange={(event) => setAverageRange((range) => ({ ...range, to: event.target.value }))} /></label><button className="button button-secondary button-small" type="button" onClick={() => void loadAverages()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
+              {averagesData ? <><section className="average-hero"><div><span>Average spend per {averageFilter}</span><strong>{formatMoney(averagesData.meanValue, showBalances)}</strong></div><p>Calculated from expenses only across the selected period.</p></section><section className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Pattern</p><h2>Average spending comparison</h2></div><span className="chart-summary">Mean {formatMoney(averagesData.meanValue, showBalances, true)}</span></div><div className="chart-area chart-area-large"><ResponsiveContainer width="100%" height={370}><BarChart data={averagesData.periodData} margin={{ top: 8, right: 5, left: -18, bottom: 30 }}><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e9eceb" /><XAxis dataKey="period" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatTick(value, averageFilter)} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatMoney(Number(value), showBalances, true)} /><Tooltip content={<ChartTooltip visible={showBalances} />} /><Bar dataKey="amount" fill="#1e293b" radius={[6, 6, 0, 0]} maxBarSize={60} /></BarChart></ResponsiveContainer></div></section><section className="insight-note"><TrendingUp size={19} /><p>Use a narrower date range to spot routines rather than isolated large purchases. The average always excludes income.</p></section></> : <section className="panel"><EmptyState icon={<RefreshCw className={loading ? 'spin' : ''} size={22} />} title="Calculating your average" copy="Your expense comparison is being prepared." /></section>}
+            </>}
+          </>
+        )}
 
-            {averagesData && (
-              <>
-                {/* Mean badge */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                  <div className="mean-badge">
-                    <span>Average spend per {avgFilter}</span>
-                    <strong>{fmt(averagesData.meanValue, showBal)}</strong>
-                  </div>
-                </div>
+        {page === 'profile' && (
+          <>
+            <PageHeader eyebrow="Profile & settings" title="Make the workspace yours" description="Manage how your name and financial values appear while keeping the rest of the app focused." />
+            <section className="profile-grid"><article className="panel profile-card"><div className="profile-card-head"><span className="profile-avatar">{currentUser.name.charAt(0).toUpperCase()}</span><div><h2>{currentUser.name}</h2><p>{currentUser.email}</p></div></div><form className="profile-form" onSubmit={saveProfile}><label>Display name<input value={profileName} onChange={(event) => { setProfileName(event.target.value); setProfileMessage(''); }} placeholder="Your name" /></label><label>Email address<input value={currentUser.email} readOnly aria-describedby="email-help" /><small id="email-help">Email changes need a backend account endpoint, which is not currently available.</small></label>{profileMessage && <p className="profile-message">{profileMessage}</p>}<button className="button button-primary" type="submit"><Check size={16} />Save display name</button></form></article><article className="panel preference-card"><div><p className="panel-kicker">Privacy</p><h2>Balance visibility</h2><p>Hide values throughout the workspace when you are sharing a screen or working in public.</p></div><button className={`preference-toggle ${showBalances ? 'on' : ''}`} type="button" onClick={toggleBalances} aria-pressed={showBalances}><span>{showBalances ? <Eye size={16} /> : <EyeOff size={16} />}</span><span>{showBalances ? 'Balances visible' : 'Balances hidden'}</span></button><div className="preference-tip"><Settings2 size={17} /> This preference is saved in this browser.</div></article></section>
 
-                {/* Big bar chart */}
-                <div className="card">
-                  <div className="card-header">
-                    <span className="card-title">
-                      {avgFilter === 'day' ? 'Daily Spending Trend' : avgFilter === 'month' ? 'Month-over-Month' : 'Year-over-Year'}
-                    </span>
-                    <span style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>
-                      Mean: <strong style={{ color: 'var(--text)' }}>{fmt(averagesData.meanValue, showBal)}</strong>
-                    </span>
-                  </div>
-                  <div className="card-body" style={{ overflow: 'hidden' }}>
-                    <div className="chart-wrap h460">
-                      <ResponsiveContainer width="100%" height={460}>
-                        <BarChart data={averagesData.periodData} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
-                          <CartesianGrid strokeDasharray="4 4" stroke="#f0f0f0" vertical={false} />
-                          <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#888' }} axisLine={false} tickLine={false}
-                            tickFormatter={p => fmtPeriodTick(p, avgFilter)}
-                            angle={avgFilter === 'day' ? -35 : 0}
-                            textAnchor={avgFilter === 'day' ? 'end' : 'middle'}
-                            interval={avgFilter === 'day' ? 'preserveStartEnd' : 0} />
-                          <YAxis tick={{ fontSize: 12, fill: '#888' }} axisLine={false} tickLine={false} width={60} tickFormatter={v => `$${v}`} />
-                          <Tooltip content={<ChartTooltip visible={showBal} />} />
-                          <Bar dataKey="amount" fill="#444444" radius={[5, 5, 0, 0]} maxBarSize={60} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Info note */}
-            <div className="card" style={{ marginTop: 20 }}>
-              <div className="card-body" style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <HelpCircle size={18} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 1 }} />
-                <div>
-                  <p style={{ fontWeight: 700, marginBottom: 6 }}>About Averages Calculations</p>
-                  <p style={{ color: 'var(--text-3)', fontSize: '0.87rem', lineHeight: 1.6 }}>
-                    Income is excluded from all calculations. The <strong style={{ color: 'var(--text)' }}>Mean Value</strong> is the total sum divided
-                    by the number of periods plotted. Use the date filters to narrow down specific windows of spending.
-                  </p>
-                </div>
-              </div>
-            </div>
           </>
         )}
       </main>
 
-      {/* ══ MODALS ══════════════════════════════════════════ */}
+      {modal === 'asset' && <ModalShell title={assetDraft.id ? 'Edit account' : 'Add an account'} subtitle="Keep each balance separate and easy to reconcile." onClose={closeModal}><form className="modal-form" onSubmit={handleAsset}><label>Account name<input value={assetDraft.name} onChange={(event) => setAssetDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="e.g. City Bank" required /></label><label>Account type<select value={assetDraft.type} onChange={(event) => setAssetDraft((draft) => ({ ...draft, type: event.target.value as Asset['type'] }))}><option value="bank">Bank account</option><option value="wallet">Digital wallet</option><option value="on_hand">Cash on hand</option></select></label><label>Current balance<input type="number" min="0" step="0.01" value={assetDraft.balance} onChange={(event) => setAssetDraft((draft) => ({ ...draft, balance: event.target.value }))} placeholder="0.00" required /></label><footer className="modal-actions">{assetDraft.id ? <button className="button button-danger-quiet" type="button" onClick={() => void handleDeleteAsset()}><Trash2 size={16} />Delete</button> : <span />}<div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit">{assetDraft.id ? 'Save changes' : 'Add account'}</button></div></footer></form></ModalShell>}
 
-      {/* ADD ASSET */}
-      {assetModal && (
-        <div className="modal-overlay" onClick={() => setAssetModal(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <button className="modal-close-btn" onClick={() => setAssetModal(false)}><X size={15} /></button>
-            <h2 className="modal-title">Add Asset</h2>
-            <form onSubmit={handleCreateAsset} className="form-grid">
-              <div>
-                <label className="form-label">Asset Name *</label>
-                <input placeholder="e.g. Chase Bank, bKash, Cash" value={newAsset.name} onChange={e => setNewAsset(p => ({ ...p, name: e.target.value }))} required />
-              </div>
-              <div>
-                <label className="form-label">Category</label>
-                <select value={newAsset.type} onChange={e => setNewAsset(p => ({ ...p, type: e.target.value as Asset['type'] }))}>
-                  <option value="bank">Bank</option>
-                  <option value="wallet">Digital Wallet</option>
-                  <option value="on_hand">On Hand</option>
-                </select>
-              </div>
-              <div>
-                <label className="form-label">Initial Balance ($)</label>
-                <input type="number" step="0.01" min="0" placeholder="0.00" value={newAsset.balance || ''} onChange={e => setNewAsset(p => ({ ...p, balance: parseFloat(e.target.value) || 0 }))} />
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setAssetModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-black">Create Asset</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {modal === 'income' && <ModalShell title="Add income" subtitle="Record money coming into one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleIncome}><label>Income source<input value={incomeDraft.source} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, source: event.target.value }))} placeholder="e.g. Salary" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={incomeDraft.amount} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date<input type="date" value={incomeDraft.date} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Deposit account<select value={incomeDraft.assetId || assets[0]?.id || ''} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label>Notes <span>(optional)</span><input value={incomeDraft.description} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit"><TrendingUp size={16} />Add income</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Income needs an account destination." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
 
-      {/* RECORD LOAN */}
-      {loanModal && (
-        <div className="modal-overlay" onClick={() => setLoanModal(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <button className="modal-close-btn" onClick={() => setLoanModal(false)}><X size={15} /></button>
-            <h2 className="modal-title" style={{ color: 'var(--amber)' }}>Record Money Lent</h2>
-            <form onSubmit={handleCreateLoan} className="form-grid">
-              <div>
-                <label className="form-label">Debtor's Name *</label>
-                <input placeholder="Who owes you money?" value={newLoan.debtorName} onChange={e => setNewLoan(p => ({ ...p, debtorName: e.target.value }))} required />
-              </div>
-              <div className="form-row">
-                <div>
-                  <label className="form-label">Amount Lent ($) *</label>
-                  <input type="number" step="0.01" min="0.01" placeholder="0.00" value={newLoan.amount || ''} onChange={e => setNewLoan(p => ({ ...p, amount: parseFloat(e.target.value) || 0 }))} required />
-                </div>
-                <div>
-                  <label className="form-label">Date Given *</label>
-                  <input type="date" value={newLoan.date} onChange={e => setNewLoan(p => ({ ...p, date: e.target.value }))} required />
-                </div>
-              </div>
-              <div>
-                <label className="form-label">Notes</label>
-                <input placeholder="Optional context" value={newLoan.description} onChange={e => setNewLoan(p => ({ ...p, description: e.target.value }))} />
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setLoanModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-black" style={{ background: 'var(--amber)', borderColor: 'var(--amber)' }}>Record Loan</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {modal === 'expense' && <ModalShell title="Add expense" subtitle="Record money leaving one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleExpense}><label>Expense title<input value={expenseDraft.title} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, title: event.target.value }))} placeholder="e.g. Weekly groceries" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={expenseDraft.amount} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Category<select value={expenseDraft.category} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, category: event.target.value }))}>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label></div><div className="form-two-column"><label>Date<input type="date" value={expenseDraft.date} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label><label>Paid from<select value={expenseDraft.assetId || assets[0]?.id || ''} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></div><label>Notes <span>(optional)</span><input value={expenseDraft.description} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit"><TrendingDown size={16} />Add expense</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Expenses need an account source." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
 
-      {/* RECORD BORROWING */}
-      {borrowModal && (
-        <div className="modal-overlay" onClick={() => setBorrowModal(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <button className="modal-close-btn" onClick={() => setBorrowModal(false)}><X size={15} /></button>
-            <h2 className="modal-title" style={{ color: 'var(--red)' }}>Record Money Borrowed</h2>
-            <form onSubmit={handleCreateBorrowing} className="form-grid">
-              <div>
-                <label className="form-label">Lender's Name *</label>
-                <input placeholder="Who did you borrow from?" value={newBorrowing.lenderName} onChange={e => setNewBorrowing(p => ({ ...p, lenderName: e.target.value }))} required />
-              </div>
-              <div className="form-row">
-                <div>
-                  <label className="form-label">Amount Borrowed ($) *</label>
-                  <input type="number" step="0.01" min="0.01" placeholder="0.00" value={newBorrowing.amount || ''} onChange={e => setNewBorrowing(p => ({ ...p, amount: parseFloat(e.target.value) || 0 }))} required />
-                </div>
-                <div>
-                  <label className="form-label">Date Taken *</label>
-                  <input type="date" value={newBorrowing.date} onChange={e => setNewBorrowing(p => ({ ...p, date: e.target.value }))} required />
-                </div>
-              </div>
-              <div>
-                <label className="form-label">Notes</label>
-                <input placeholder="Optional context" value={newBorrowing.description} onChange={e => setNewBorrowing(p => ({ ...p, description: e.target.value }))} />
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setBorrowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-black" style={{ background: 'var(--red)', borderColor: 'var(--red)' }}>Record Debt</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {modal === 'loan' && <ModalShell title="Record money lent" subtitle="Keep the person, amount, and date ready for follow-up." onClose={closeModal}><form className="modal-form" onSubmit={handleLoan}><label>Who owes you?<input value={loanDraft.debtorName} onChange={(event) => setLoanDraft((draft) => ({ ...draft, debtorName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={loanDraft.amount} onChange={(event) => setLoanDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date lent<input type="date" value={loanDraft.date} onChange={(event) => setLoanDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={loanDraft.description} onChange={(event) => setLoanDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit">Record loan</button></div></footer></form></ModalShell>}
 
+      {modal === 'borrowing' && <ModalShell title="Record money borrowed" subtitle="Keep repayment obligations visible and organised." onClose={closeModal}><form className="modal-form" onSubmit={handleBorrowing}><label>Who lent you money?<input value={borrowingDraft.lenderName} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, lenderName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={borrowingDraft.amount} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date borrowed<input type="date" value={borrowingDraft.date} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={borrowingDraft.description} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit">Record borrowing</button></div></footer></form></ModalShell>}
     </div>
   );
 }

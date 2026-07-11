@@ -137,6 +137,8 @@ export const api = {
       method: 'POST', 
       body: JSON.stringify({ email: data.email, password: data.passwordPlain }) 
     }),
+  updateProfile: (data: { name: string }) => 
+    request<AuthUser>('/users/profile', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Assets
   getAssets: () => request<Asset[]>('/assets'),
