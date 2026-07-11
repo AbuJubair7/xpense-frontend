@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api, setAuthToken } from './api';
-import type { Asset, Loan, Borrowing, Income, Expense, HistoryResponse, AveragesResponse, AuthUser } from './api';
+import type { Asset, Loan, Borrowing, HistoryResponse, AveragesResponse, AuthUser, SummaryResponse, ActivityItem } from './api';
 
 interface AppState {
   currentUser: AuthUser | null;
@@ -8,10 +8,8 @@ interface AppState {
   error: string | null;
 
   assets: Asset[];
-  loans: Loan[];
-  borrowings: Borrowing[];
-  incomes: Income[];
-  expenses: Expense[];
+  summary: SummaryResponse | null;
+  recentActivity: ActivityItem[];
   historyData: HistoryResponse | null;
   averagesData: AveragesResponse | null;
 
@@ -34,10 +32,8 @@ export const useStore = create<AppState>((set, get) => ({
   error: null,
 
   assets: [],
-  loans: [],
-  borrowings: [],
-  incomes: [],
-  expenses: [],
+  summary: null,
+  recentActivity: [],
   historyData: null,
   averagesData: null,
 
@@ -50,14 +46,12 @@ export const useStore = create<AppState>((set, get) => ({
     if (!currentUser) return;
     set({ loading: true, error: null });
     try {
-      const [assets, loans, borrowings, incomes, expenses] = await Promise.all([
+      const [assets, summary, recentActivityResult] = await Promise.all([
         api.getAssets(),
-        api.getLoans(),
-        api.getBorrowings(),
-        api.getIncome(),
-        api.getExpenses(),
+        api.getSummary(),
+        api.getActivity({ page: 1, limit: 10 }),
       ]);
-      set({ assets, loans, borrowings, incomes, expenses });
+      set({ assets, summary, recentActivity: recentActivityResult.data });
     } catch (requestError) {
       set({ error: requestError instanceof Error ? requestError.message : 'Unable to load your financial data.' });
     } finally {
@@ -99,10 +93,8 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       currentUser: null,
       assets: [],
-      loans: [],
-      borrowings: [],
-      incomes: [],
-      expenses: [],
+      summary: null,
+      recentActivity: [],
       historyData: null,
       averagesData: null,
       error: null,

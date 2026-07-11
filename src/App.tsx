@@ -57,19 +57,15 @@ const PIE_COLORS = ['#0e7a3c', '#1e5eff', '#d97706', '#7c3aed', '#db2777', '#475
 
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
-const daysAgo = (days: number) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-const monthsAgo = (months: number) => {
-  const date = new Date();
-  date.setMonth(date.getMonth() - months);
-  return date.toISOString().slice(0, 7);
-};
+const startOfThisMonth = () => new Date().toISOString().substring(0, 7) + '-01';
+const startOfThisYear = () => new Date().toISOString().substring(0, 4) + '-01';
 const thisYear = () => String(new Date().getFullYear());
-const lastYear = () => String(new Date().getFullYear() - 1);
+const fiveYearsAgo = () => String(new Date().getFullYear() - 5);
 
 const defaultRanges = {
-  day: { from: daysAgo(30), to: today() },
-  month: { from: monthsAgo(5), to: thisMonth() },
-  year: { from: lastYear(), to: thisYear() },
+  day: { from: startOfThisMonth(), to: today() },
+  month: { from: startOfThisYear(), to: thisMonth() },
+  year: { from: fiveYearsAgo(), to: thisYear() },
 };
 
 function formatMoney(value: number, visible: boolean, compact = false) {
@@ -79,7 +75,7 @@ function formatMoney(value: number, visible: boolean, compact = false) {
     currency: 'BDT',
     notation: compact ? 'compact' : 'standard',
     maximumFractionDigits: compact ? 1 : 2,
-  }).format(value);
+  }).format(value).replace(/-/g, '').replace(/−/g, '');
 }
 
 function formatDate(value: string) {
@@ -175,11 +171,58 @@ function ChartTooltip({ active, payload, label, visible }: { active?: boolean; p
     </div>
   );
 }
+function Pagination({ currentPage, totalPages, onPageChange }: { currentPage: number, totalPages: number, onPageChange: (page: number) => void }) {
+  const renderPages = () => {
+    const pages = [];
+    if (totalPages <= 5) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      if (currentPage <= 3) {
+        pages.push(1, 2, 3, '...', totalPages - 1, totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1, 2, '...', totalPages - 2, totalPages - 1, totalPages);
+      } else {
+        pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
+      }
+    }
+    
+    return pages.map((page, index) => {
+      if (page === '...') {
+        return <span key={`ellipsis-${index}`} className="pagination-ellipsis">...</span>;
+      }
+      return (
+        <button
+          key={`page-${page}`}
+          type="button"
+          className={`pagination-number ${currentPage === page ? 'active' : ''}`}
+          onClick={() => onPageChange(page as number)}
+          disabled={currentPage === page}
+        >
+          {page}
+        </button>
+      );
+    });
+  };
+
+  return (
+    <div className="pagination-controls">
+      <button className="icon-button" type="button" disabled={currentPage === 1} onClick={() => onPageChange(currentPage - 1)}>
+        <ChevronLeft size={16} />
+      </button>
+      <div className="pagination-numbers">
+        {renderPages()}
+      </div>
+      <button className="icon-button" type="button" disabled={currentPage === totalPages} onClick={() => onPageChange(currentPage + 1)}>
+        <ChevronRight size={16} />
+      </button>
+    </div>
+  );
+}
 
 export default function App() {
   const {
     currentUser, loading, error,
-    assets, loans, borrowings, incomes, expenses,
+    assets, summary, recentActivity,
     historyData, averagesData,
     setCurrentUser, setLoading, setError,
     loadOverview, loadHistory, loadAverages, logout
@@ -204,11 +247,20 @@ export default function App() {
   const [loanDraft, setLoanDraft] = useState({ debtorName: '', amount: '', date: today(), description: '' });
   const [borrowingDraft, setBorrowingDraft] = useState({ lenderName: '', amount: '', date: today(), description: '' });
 
+  const [loansData, setLoansData] = useState<{ data: Loan[]; pagination: Page } | null>(null);
+  const [borrowingsData, setBorrowingsData] = useState<{ data: Borrowing[]; pagination: Page } | null>(null);
+  const [loansPage, setLoansPage] = useState(1);
+  const [borrowingsPage, setBorrowingsPage] = useState(1);
+
   const [activityType, setActivityType] = useState<'all' | 'credit' | 'debit'>('all');
   const [activityAsset, setActivityAsset] = useState('all');
-  const [activityDates, setActivityDates] = useState({ from: '', to: '' });
+  const [activityDates, setActivityDates] = useState({ from: startOfThisMonth(), to: today() });
+  const [activityPage, setActivityPage] = useState(1);
+  const [activityData, setActivityData] = useState<ActivityResponse | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
 
   const [insightMode, setInsightMode] = useState<InsightMode>('history');
+  const [historyPage, setHistoryPage] = useState(1);
   const [historyFilter, setHistoryFilter] = useState<'day' | 'month' | 'year'>('month');
   const [dayRange, setDayRange] = useState(defaultRanges.day);
   const [monthRange, setMonthRange] = useState(defaultRanges.month);
@@ -221,12 +273,12 @@ export default function App() {
 
   const handleLoadHistory = useCallback(async () => {
     const params = historyFilter === 'day'
-      ? { fromDay: dayRange.from, toDay: dayRange.to }
+      ? { page: historyPage, limit: 10, fromDay: dayRange.from, toDay: dayRange.to }
       : historyFilter === 'month'
-        ? { fromMonth: monthRange.from, toMonth: monthRange.to }
-        : { fromYear: yearRange.from, toYear: yearRange.to };
+        ? { page: historyPage, limit: 10, fromMonth: monthRange.from, toMonth: monthRange.to }
+        : { page: historyPage, limit: 10, fromYear: yearRange.from, toYear: yearRange.to };
     await loadHistory(params);
-  }, [dayRange, historyFilter, loadHistory, monthRange, yearRange]);
+  }, [dayRange, historyFilter, historyPage, loadHistory, monthRange, yearRange]);
 
   const handleLoadAverages = useCallback(async () => {
     await loadAverages({ type: averageFilter, fromDate: averageRange.from, toDate: averageRange.to });
@@ -244,7 +296,7 @@ export default function App() {
       else void handleLoadAverages();
     }, 0);
     return () => window.clearTimeout(requestId);
-  }, [insightMode, handleLoadAverages, handleLoadHistory, page]);
+  }, [insightMode, historyPage, handleLoadAverages, handleLoadHistory, page]);
 
   const toggleBalances = () => {
     const next = !showBalances;
@@ -263,7 +315,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.login({ email: authEmail, passwordPlain: authPassword });
+      const result = await api.login({ email: authEmail.trim(), password: authPassword });
       setAuthToken(result.access_token);
       localStorage.setItem('user', JSON.stringify(result.user));
       setCurrentUser(result.user);
@@ -286,7 +338,7 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await api.register({ name: authName, email: authEmail, passwordPlain: authPassword });
+      await api.register({ name: authName.trim(), email: authEmail.trim(), password: authPassword });
       setAuthTab('login');
       setAuthMessage('Account created. Sign in to open your workspace.');
       setAuthPassword('');
@@ -391,7 +443,7 @@ export default function App() {
       await api.createLoan({ ...loanDraft, debtorName: loanDraft.debtorName.trim(), amount });
       setLoanDraft({ debtorName: '', amount: '', date: today(), description: '' });
       closeModal();
-      await loadOverview();
+      await Promise.all([loadOverview(), handleLoadLoans()]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add loan.');
     }
@@ -408,31 +460,31 @@ export default function App() {
       await api.createBorrowing({ ...borrowingDraft, lenderName: borrowingDraft.lenderName.trim(), amount });
       setBorrowingDraft({ lenderName: '', amount: '', date: today(), description: '' });
       closeModal();
-      await loadOverview();
+      await Promise.all([loadOverview(), handleLoadBorrowings()]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add borrowing.');
     }
   };
 
   const settleLoan = async (id: string) => {
-    try { await api.settleLoan(id); await loadOverview(); }
+    try { await api.settleLoan(id); await Promise.all([loadOverview(), handleLoadLoans()]); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update loan.'); }
   };
 
   const settleBorrowing = async (id: string) => {
-    try { await api.settleBorrowing(id); await loadOverview(); }
+    try { await api.settleBorrowing(id); await Promise.all([loadOverview(), handleLoadBorrowings()]); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update borrowing.'); }
   };
 
   const deleteLoan = async (id: string) => {
     if (!confirm('Delete this loan?')) return;
-    try { await api.deleteLoan(id); await loadOverview(); }
+    try { await api.deleteLoan(id); await Promise.all([loadOverview(), handleLoadLoans()]); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete loan.'); }
   };
 
   const deleteBorrowing = async (id: string) => {
     if (!confirm('Delete this borrowing?')) return;
-    try { await api.deleteBorrowing(id); await loadOverview(); }
+    try { await api.deleteBorrowing(id); await Promise.all([loadOverview(), handleLoadBorrowings()]); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete borrowing.'); }
   };
 
@@ -473,30 +525,62 @@ export default function App() {
   };
 
   const totalAssets = useMemo(() => assets.reduce((sum, asset) => sum + Number(asset.balance), 0), [assets]);
-  const outstandingLoans = useMemo(() => loans.reduce((sum, loan) => sum + (loan.isSettled ? 0 : Number(loan.amount)), 0), [loans]);
-  const outstandingBorrowings = useMemo(() => borrowings.reduce((sum, borrowing) => sum + (borrowing.isSettled ? 0 : Number(borrowing.amount)), 0), [borrowings]);
+  const outstandingLoans = summary?.outstandingLoans ? Number(summary.outstandingLoans) : 0;
+  const outstandingBorrowings = summary?.outstandingBorrowings ? Number(summary.outstandingBorrowings) : 0;
   const netWorth = totalAssets + outstandingLoans - outstandingBorrowings;
-  const periodIncome = useMemo(() => incomes.filter((income) => income.date.startsWith(thisMonth())).reduce((sum, income) => sum + Number(income.amount), 0), [incomes]);
-  const periodExpenses = useMemo(() => expenses.filter((expense) => expense.date.startsWith(thisMonth())).reduce((sum, expense) => sum + Number(expense.amount), 0), [expenses]);
+  const periodIncome = summary?.periodIncome || 0;
+  const periodExpenses = summary?.periodExpenses || 0;
 
-  const activityItems = useMemo(() => [
-    ...incomes.map((income) => ({
-      id: income.id, kind: 'credit' as const, title: income.source, amount: Number(income.amount), date: income.date,
-      description: income.description || '', assetName: income.asset?.name || 'Unknown account', assetType: income.asset?.type || 'bank', assetId: income.asset?.id || '',
-    })),
-    ...expenses.map((expense) => ({
-      id: expense.id, kind: 'debit' as const, title: expense.title, amount: Number(expense.amount), date: expense.date,
-      description: expense.description || '', assetName: expense.asset?.name || 'Unknown account', assetType: expense.asset?.type || 'bank', assetId: expense.asset?.id || '',
-    })),
-  ].filter((item) => {
-    if (activityType !== 'all' && item.kind !== activityType) return false;
-    if (activityAsset !== 'all' && item.assetId !== activityAsset) return false;
-    if (activityDates.from && item.date < activityDates.from) return false;
-    if (activityDates.to && item.date > activityDates.to) return false;
-    return true;
-  }).sort((first, second) => second.date.localeCompare(first.date)), [activityAsset, activityDates, activityType, expenses, incomes]);
+  const handleLoadActivity = useCallback(async () => {
+    setActivityLoading(true);
+    try {
+      const data = await api.getActivity({
+        page: activityPage,
+        limit: 10,
+        fromDate: activityDates.from,
+        toDate: activityDates.to,
+        kind: activityType === 'all' ? undefined : activityType,
+        assetId: activityAsset === 'all' ? undefined : activityAsset,
+      });
+      setActivityData(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, [activityPage, activityDates, activityType, activityAsset]);
 
-  const recentActivity = activityItems.slice(0, 5);
+  const handleLoadLoans = useCallback(async () => {
+    try {
+      const data = await api.getLoans(loansPage, 10);
+      setLoansData(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [loansPage]);
+
+  const handleLoadBorrowings = useCallback(async () => {
+    try {
+      const data = await api.getBorrowings(borrowingsPage, 10);
+      setBorrowingsData(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [borrowingsPage]);
+
+  useEffect(() => {
+    if (page === 'debts' && currentUser) {
+      void handleLoadLoans();
+      void handleLoadBorrowings();
+    }
+  }, [page, currentUser, handleLoadLoans, handleLoadBorrowings]);
+
+  useEffect(() => {
+    if ((page === 'dashboard' || page === 'activity') && currentUser) {
+      void handleLoadActivity();
+    }
+  }, [handleLoadActivity, page, currentUser]);
+
   const navItems: { id: Page; label: string; shortLabel: string; icon: ReactNode }[] = [
     { id: 'dashboard', label: 'Overview', shortLabel: 'Overview', icon: <LayoutDashboard size={18} /> },
     { id: 'activity', label: 'Activity', shortLabel: 'Activity', icon: <Receipt size={18} /> },
@@ -515,7 +599,7 @@ export default function App() {
     return (
       <main className="auth-layout">
         <section className="auth-brief" aria-hidden="true">
-          <div className="brand brand-light"><span className="brand-mark">X</span><span>xpense</span></div>
+          <div className="brand brand-light"><span className="brand-mark">X</span><span>pense</span></div>
           <div className="auth-brief-copy">
             <p className="eyebrow">A calmer way to manage money</p>
             <h1>See the whole picture, then make the next move.</h1>
@@ -529,7 +613,7 @@ export default function App() {
         </section>
         <section className="auth-panel">
           <div className="auth-card">
-            <div className="brand brand-dark"><span className="brand-mark">X</span><span>xpense</span></div>
+            <div className="brand brand-dark"><span className="brand-mark">X</span><span>pense</span></div>
             <p className="eyebrow">Your finance workspace</p>
             <h2>{authTab === 'login' ? 'Welcome back' : 'Set up your workspace'}</h2>
             <p className="auth-copy">{authTab === 'login' ? 'Sign in to continue where you left off.' : 'Create a secure account to start tracking clearly.'}</p>
@@ -560,7 +644,7 @@ export default function App() {
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
       <header className="mobile-header">
-        <div className="brand brand-light"><span className="brand-mark">X</span><span>xpense</span></div>
+        <div className="brand brand-light"><span className="brand-mark">X</span><span>pense</span></div>
         <div className="mobile-header-actions">
           <button className="icon-button icon-button-dark" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button>
           <button className="icon-button icon-button-dark" type="button" onClick={() => setMobileNavOpen((open) => !open)} aria-label="Open navigation"><Menu size={20} /></button>
@@ -579,7 +663,7 @@ export default function App() {
 
       <aside className="sidebar">
         <div className="sidebar-top">
-          <div className="brand brand-light"><span className="brand-mark">X</span><span className="sidebar-copy">xpense</span></div>
+          <div className="brand brand-light"><span className="brand-mark">X</span><span className="sidebar-copy">pense</span></div>
           <button className="sidebar-collapse" type="button" onClick={toggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             {sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
           </button>
@@ -614,8 +698,8 @@ export default function App() {
 
             <section className="metric-grid">
               <article className="metric-card"><div className="metric-icon"><Landmark size={18} /></div><span>Accounts</span><strong>{formatMoney(totalAssets, showBalances)}</strong><p>{assets.length} tracked account{assets.length === 1 ? '' : 's'}</p></article>
-              <article className="metric-card"><div className="metric-icon metric-icon-amber"><ArrowUpRight size={18} /></div><span>Money owed to you</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong><p>{loans.filter((loan) => !loan.isSettled).length} open loan{loans.filter((loan) => !loan.isSettled).length === 1 ? '' : 's'}</p></article>
-              <article className="metric-card"><div className="metric-icon metric-icon-red"><ArrowDownRight size={18} /></div><span>Money you owe</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong><p>{borrowings.filter((borrowing) => !borrowing.isSettled).length} open borrowing{borrowings.filter((borrowing) => !borrowing.isSettled).length === 1 ? '' : 's'}</p></article>
+              <article className="metric-card"><div className="metric-icon metric-icon-amber"><ArrowUpRight size={18} /></div><span>Money owed to you</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong><p>{summary?.outstandingLoansCount || 0} open loan{(summary?.outstandingLoansCount || 0) === 1 ? '' : 's'}</p></article>
+              <article className="metric-card"><div className="metric-icon metric-icon-red"><ArrowDownRight size={18} /></div><span>Money you owe</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong><p>{summary?.outstandingBorrowingsCount || 0} open borrowing{(summary?.outstandingBorrowingsCount || 0) === 1 ? '' : 's'}</p></article>
               <article className="metric-card"><div className="metric-icon metric-icon-green"><CalendarDays size={18} /></div><span>Spent this month</span><strong>{formatMoney(periodExpenses, showBalances)}</strong><p>{formatMoney(periodIncome, showBalances, true)} received</p></article>
             </section>
 
@@ -634,8 +718,81 @@ export default function App() {
         {page === 'activity' && (
           <>
             <PageHeader eyebrow="Transactions" title="Money in, money out" description="Capture activity against the account it belongs to, then find it quickly when you need it." actions={<><button className="button button-secondary" type="button" onClick={() => setModal('income')}><Plus size={16} />Income</button><button className="button button-primary" type="button" onClick={() => setModal('expense')}><Plus size={16} />Expense</button></>} />
-            <section className="filter-panel"><div className="filter-label"><ListFilter size={17} /><span>Filter activity</span></div><div className="segmented-control"><button className={activityType === 'all' ? 'active' : ''} type="button" onClick={() => setActivityType('all')}>All</button><button className={activityType === 'credit' ? 'active' : ''} type="button" onClick={() => setActivityType('credit')}>Income</button><button className={activityType === 'debit' ? 'active' : ''} type="button" onClick={() => setActivityType('debit')}>Expenses</button></div><label className="filter-field"><span>Account</span><select value={activityAsset} onChange={(event) => setActivityAsset(event.target.value)}><option value="all">All accounts</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label className="filter-field"><span>From</span><input type="date" value={activityDates.from} onChange={(event) => setActivityDates((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="date" value={activityDates.to} onChange={(event) => setActivityDates((range) => ({ ...range, to: event.target.value }))} /></label></section>
-            <section className="panel table-panel"><div className="panel-header"><div><p className="panel-kicker">Ledger</p><h2>{activityItems.length} matching transaction{activityItems.length === 1 ? '' : 's'}</h2></div><button className="icon-button" type="button" onClick={() => void loadOverview()} aria-label="Refresh activity"><RefreshCw className={loading ? 'spin' : ''} size={17} /></button></div>{activityItems.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Transaction</th><th>Account</th><th>Date</th><th>Notes</th><th className="align-right">Amount</th><th aria-label="Actions" /></tr></thead><tbody>{activityItems.map((item) => <tr key={`${item.kind}-${item.id}`}><td><div className="transaction-cell"><span className={`transaction-icon ${item.kind}`}>{item.kind === 'credit' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}</span><div><strong>{item.title}</strong><small>{item.kind === 'credit' ? 'Income' : 'Expense'}</small></div></div></td><td><span className="account-table-cell"><AssetIcon type={item.assetType} size={15} />{item.assetName}</span></td><td>{formatDate(item.date)}</td><td className="muted-cell">{item.description || '—'}</td><td className={`align-right amount-cell ${item.kind === 'credit' ? 'amount-positive' : 'amount-negative'}`}>{item.kind === 'credit' ? '+' : '−'}{formatMoney(item.amount, showBalances)}</td><td><button className="icon-button danger-button" type="button" onClick={() => void deleteActivity(item.id, item.kind)} aria-label={`Delete ${item.title}`}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={<Receipt size={22} />} title="Nothing matches these filters" copy="Try a different account or date range, or record a new transaction." />}</section>
+            <section className="filter-panel"><div className="filter-label"><ListFilter size={17} /><span>Filter activity</span></div><div className="segmented-control"><button className={activityType === 'all' ? 'active' : ''} type="button" onClick={() => { setActivityType('all'); setActivityPage(1); }}>All</button><button className={activityType === 'credit' ? 'active' : ''} type="button" onClick={() => { setActivityType('credit'); setActivityPage(1); }}>Income</button><button className={activityType === 'debit' ? 'active' : ''} type="button" onClick={() => { setActivityType('debit'); setActivityPage(1); }}>Expenses</button></div><label className="filter-field"><span>Account</span><select value={activityAsset} onChange={(event) => { setActivityAsset(event.target.value); setActivityPage(1); }}><option value="all">All accounts</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label className="filter-field"><span>From</span><input type="date" value={activityDates.from} onChange={(event) => { setActivityDates((range) => ({ ...range, from: event.target.value })); setActivityPage(1); }} /></label><label className="filter-field"><span>To</span><input type="date" value={activityDates.to} onChange={(event) => { setActivityDates((range) => ({ ...range, to: event.target.value })); setActivityPage(1); }} /></label></section>
+            <section className="panel table-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="panel-kicker">Ledger</p>
+                  <h2>{activityData?.pagination.total || 0} matching transaction{(activityData?.pagination.total || 0) === 1 ? '' : 's'}</h2>
+                </div>
+                <button className="icon-button" type="button" onClick={() => void handleLoadActivity()} aria-label="Refresh activity">
+                  <RefreshCw className={activityLoading ? 'spin' : ''} size={17} />
+                </button>
+              </div>
+              {(activityData?.data || []).length ? (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Transaction</th>
+                        <th>Account</th>
+                        <th>Date</th>
+                        <th>Notes</th>
+                        <th className="align-right">Amount</th>
+                        <th aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activityData!.data.map((item) => (
+                        <tr key={`${item.kind}-${item.id}`}>
+                          <td>
+                            <div className="transaction-cell">
+                              <span className={`transaction-icon ${item.kind}`}>
+                                {item.kind === 'credit' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                              </span>
+                              <div>
+                                <strong>{item.title}</strong>
+                                <small>{item.kind === 'credit' ? 'Income' : 'Expense'}</small>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="account-table-cell">
+                              <AssetIcon type={item.assetType} size={15} />
+                              {item.assetName}
+                            </span>
+                          </td>
+                          <td>{formatDate(item.date)}</td>
+                          <td className="muted-cell">{item.description || '—'}</td>
+                          <td className={`align-right amount-cell ${item.kind === 'credit' ? 'amount-positive' : 'amount-negative'}`}>
+                            {item.kind === 'credit' ? '+' : '−'}
+                            {formatMoney(item.amount, showBalances)}
+                          </td>
+                          <td>
+                            <button className="icon-button danger-button" type="button" onClick={() => void deleteActivity(item.id, item.kind)} aria-label={`Delete ${item.title}`}>
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {activityData && activityData.pagination.totalPages > 1 && (
+                    <Pagination
+                      currentPage={activityPage}
+                      totalPages={activityData.pagination.totalPages}
+                      onPageChange={setActivityPage}
+                    />
+                  )}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={<Receipt size={22} />}
+                  title="Nothing matches these filters"
+                  copy="Try a different account or date range, or record a new transaction."
+                />
+              )}
+            </section>
           </>
         )}
 
@@ -651,9 +808,39 @@ export default function App() {
         {page === 'debts' && (
           <>
             <PageHeader eyebrow="Debt book" title="Know what is outstanding" description="Keep money you have lent and money you owe distinct, visible, and easy to settle." actions={<><button className="button button-secondary" type="button" onClick={() => setModal('loan')}><Plus size={16} />Money lent</button><button className="button button-primary" type="button" onClick={() => setModal('borrowing')}><Plus size={16} />Money borrowed</button></>} />
-            <section className="debt-summary-grid"><article className="debt-summary debt-summary-lent"><span>Outstanding to collect</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong><p>{loans.filter((loan) => !loan.isSettled).length} active loan{loans.filter((loan) => !loan.isSettled).length === 1 ? '' : 's'}</p></article><article className="debt-summary debt-summary-borrowed"><span>Outstanding to repay</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong><p>{borrowings.filter((borrowing) => !borrowing.isSettled).length} active borrowing{borrowings.filter((borrowing) => !borrowing.isSettled).length === 1 ? '' : 's'}</p></article></section>
-            <section className="debt-grid"><article className="panel debt-panel"><div className="panel-header"><div><p className="panel-kicker">Receivable</p><h2>Money you lent</h2></div><button className="icon-button" type="button" onClick={() => setModal('loan')} aria-label="Record money lent"><Plus size={18} /></button></div>{loans.length ? <div className="debt-list">{loans.map((loan) => <div className="debt-row" key={loan.id}><div className="debt-person"><span className="person-avatar">{loan.debtorName.charAt(0).toUpperCase()}</span><div><strong>{loan.debtorName}</strong><span>{formatDate(loan.date)}{loan.description ? ` · ${loan.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={loan.isSettled ? 'amount-muted' : 'amount-amber'}>{formatMoney(Number(loan.amount), showBalances)}</strong><button className={`status-button ${loan.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleLoan(loan.id)}>{loan.isSettled ? <><Check size={14} />Settled</> : 'Settle'}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteLoan(loan.id)} aria-label={`Delete loan for ${loan.debtorName}`}><Trash2 size={16} /></button></div></div>)}</div> : <EmptyState icon={<ArrowUpRight size={22} />} title="No loans recorded" copy="Record money you lend to make follow-up simple." action={<button className="button button-secondary button-small" type="button" onClick={() => setModal('loan')}><Plus size={15} />Record loan</button>} />}</article>
-              <article className="panel debt-panel"><div className="panel-header"><div><p className="panel-kicker">Payable</p><h2>Money you borrowed</h2></div><button className="icon-button" type="button" onClick={() => setModal('borrowing')} aria-label="Record money borrowed"><Plus size={18} /></button></div>{borrowings.length ? <div className="debt-list">{borrowings.map((borrowing) => <div className="debt-row" key={borrowing.id}><div className="debt-person"><span className="person-avatar person-avatar-red">{borrowing.lenderName.charAt(0).toUpperCase()}</span><div><strong>{borrowing.lenderName}</strong><span>{formatDate(borrowing.date)}{borrowing.description ? ` · ${borrowing.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={borrowing.isSettled ? 'amount-muted' : 'amount-negative'}>{formatMoney(Number(borrowing.amount), showBalances)}</strong><button className={`status-button ${borrowing.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleBorrowing(borrowing.id)}>{borrowing.isSettled ? <><Check size={14} />Paid</> : 'Mark paid'}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteBorrowing(borrowing.id)} aria-label={`Delete borrowing from ${borrowing.lenderName}`}><Trash2 size={16} /></button></div></div>)}</div> : <EmptyState icon={<ArrowDownRight size={22} />} title="No borrowings recorded" copy="Record money you owe so repayment never gets lost." action={<button className="button button-primary button-small" type="button" onClick={() => setModal('borrowing')}><Plus size={15} />Record borrowing</button>} />}</article></section>
+            <section className="debt-summary-grid"><article className="debt-summary debt-summary-lent"><span>Outstanding to collect</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong><p>Active loans</p></article><article className="debt-summary debt-summary-borrowed"><span>Outstanding to repay</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong><p>Active borrowings</p></article></section>
+            <section className="debt-grid">
+              <article className="panel debt-panel">
+                <div className="panel-header"><div><p className="panel-kicker">Receivable</p><h2>Money you lent</h2></div><button className="icon-button" type="button" onClick={() => setModal('loan')} aria-label="Record money lent"><Plus size={18} /></button></div>
+                {loansData?.data?.length ? (
+                  <>
+                    <div className="debt-list">{loansData.data.map((loan) => <div className="debt-row" key={loan.id}><div className="debt-person"><span className="person-avatar">{loan.debtorName.charAt(0).toUpperCase()}</span><div><strong>{loan.debtorName}</strong><span>{formatDate(loan.date)}{loan.description ? ` · ${loan.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={loan.isSettled ? 'amount-muted' : 'amount-amber'}>{formatMoney(Number(loan.amount), showBalances)}</strong><button className={`status-button ${loan.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleLoan(loan.id)}>{loan.isSettled ? <><Check size={14} />Settled</> : 'Settle'}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteLoan(loan.id)} aria-label={`Delete loan for ${loan.debtorName}`}><Trash2 size={16} /></button></div></div>)}</div>
+                    {loansData.pagination.totalPages > 1 && (
+                      <Pagination
+                        currentPage={loansPage}
+                        totalPages={loansData.pagination.totalPages}
+                        onPageChange={setLoansPage}
+                      />
+                    )}
+                  </>
+                ) : <EmptyState icon={<ArrowUpRight size={22} />} title="No loans recorded" copy="Record money you lend to make follow-up simple." action={<button className="button button-secondary button-small" type="button" onClick={() => setModal('loan')}><Plus size={15} />Record loan</button>} />}
+              </article>
+              <article className="panel debt-panel">
+                <div className="panel-header"><div><p className="panel-kicker">Payable</p><h2>Money you borrowed</h2></div><button className="icon-button" type="button" onClick={() => setModal('borrowing')} aria-label="Record money borrowed"><Plus size={18} /></button></div>
+                {borrowingsData?.data?.length ? (
+                  <>
+                    <div className="debt-list">{borrowingsData.data.map((borrowing) => <div className="debt-row" key={borrowing.id}><div className="debt-person"><span className="person-avatar person-avatar-red">{borrowing.lenderName.charAt(0).toUpperCase()}</span><div><strong>{borrowing.lenderName}</strong><span>{formatDate(borrowing.date)}{borrowing.description ? ` · ${borrowing.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={borrowing.isSettled ? 'amount-muted' : 'amount-negative'}>{formatMoney(Number(borrowing.amount), showBalances)}</strong><button className={`status-button ${borrowing.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleBorrowing(borrowing.id)}>{borrowing.isSettled ? <><Check size={14} />Paid</> : 'Mark paid'}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteBorrowing(borrowing.id)} aria-label={`Delete borrowing from ${borrowing.lenderName}`}><Trash2 size={16} /></button></div></div>)}</div>
+                    {borrowingsData.pagination.totalPages > 1 && (
+                      <Pagination
+                        currentPage={borrowingsPage}
+                        totalPages={borrowingsData.pagination.totalPages}
+                        onPageChange={setBorrowingsPage}
+                      />
+                    )}
+                  </>
+                ) : <EmptyState icon={<ArrowDownRight size={22} />} title="No borrowings recorded" copy="Record money you owe so repayment never gets lost." action={<button className="button button-primary button-small" type="button" onClick={() => setModal('borrowing')}><Plus size={15} />Record borrowing</button>} />}
+              </article>
+            </section>
           </>
         )}
 
@@ -662,8 +849,16 @@ export default function App() {
             <PageHeader eyebrow="Insights" title="Understand your spending rhythm" description="Explore the volume and shape of expenses without crowding your everyday dashboard." actions={<button className="icon-button" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button>} />
             <section className="insight-switch"><button className={insightMode === 'history' ? 'active' : ''} type="button" onClick={() => setInsightMode('history')}><BarChart3 size={17} />Spending history</button><button className={insightMode === 'averages' ? 'active' : ''} type="button" onClick={() => setInsightMode('averages')}><TrendingUp size={17} />Averages</button></section>
             {insightMode === 'history' ? <>
-              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Time period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={historyFilter === mode ? 'active' : ''} type="button" onClick={() => { setHistoryFilter(mode); if (mode === 'day') setDayRange(defaultRanges.day); if (mode === 'month') setMonthRange(defaultRanges.month); if (mode === 'year') setYearRange(defaultRanges.year); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div>{historyFilter === 'day' && <><label className="filter-field"><span>From</span><input type="date" value={dayRange.from} max={dayRange.to} onChange={(event) => setDayRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="date" value={dayRange.to} min={dayRange.from} onChange={(event) => setDayRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'month' && <><label className="filter-field"><span>From</span><input type="month" value={monthRange.from} max={monthRange.to} onChange={(event) => setMonthRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="month" value={monthRange.to} min={monthRange.from} onChange={(event) => setMonthRange((range) => ({ ...range, to: event.target.value }))} /></label></>}{historyFilter === 'year' && <><label className="filter-field"><span>From</span><input type="number" min="2000" value={yearRange.from} onChange={(event) => setYearRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type="number" min={yearRange.from} value={yearRange.to} onChange={(event) => setYearRange((range) => ({ ...range, to: event.target.value }))} /></label></>}<button className="button button-secondary button-small" type="button" onClick={() => void handleLoadHistory()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
-              {historyData ? <><section className="insight-stat-row"><div><span>Total spend in range</span><strong className="amount-negative">{formatMoney(historyData.totalSpending, showBalances)}</strong></div><p>Expenses only · {historyData.transactions.length} recorded transaction{historyData.transactions.length === 1 ? '' : 's'}</p></section><section className="chart-grid"><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Volume</p><h2>Spending over time</h2></div></div><div className="chart-area"><ResponsiveContainer width="100%" height={300}><BarChart data={historyData.timelineData} margin={{ top: 8, right: 5, left: -18, bottom: 25 }}><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e9eceb" /><XAxis dataKey="period" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatTick(value, historyFilter)} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatMoney(Number(value), showBalances, true)} /><Tooltip content={<ChartTooltip visible={showBalances} />} /><Bar dataKey="amount" fill="#0e7a3c" radius={[6, 6, 0, 0]} maxBarSize={52} /></BarChart></ResponsiveContainer></div></article><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Distribution</p><h2>Where it went</h2></div></div>{historyData.categoryBreakdown.length ? <div className="category-chart"><ResponsiveContainer width="100%" height={245}><PieChart><Pie data={historyData.categoryBreakdown} dataKey="amount" nameKey="category" innerRadius={62} outerRadius={94} paddingAngle={3}>{historyData.categoryBreakdown.map((_, index) => <Cell fill={PIE_COLORS[index % PIE_COLORS.length]} key={index} />)}</Pie><Tooltip formatter={(value) => formatMoney(Number(value), showBalances)} /></PieChart></ResponsiveContainer><div className="category-legend">{historyData.categoryBreakdown.map((item, index) => <div key={item.category}><span style={{ background: PIE_COLORS[index % PIE_COLORS.length] }} /><span>{item.category}</span><strong>{showBalances ? `${item.percentage}%` : '••%'}</strong></div>)}</div></div> : <EmptyState icon={<BarChart3 size={22} />} title="No category data yet" copy="Your spending distribution will appear after you add expenses." />}</article></section><section className="panel table-panel"><div className="panel-header"><div><p className="panel-kicker">Expense records</p><h2>Transactions in this range</h2></div></div>{historyData.transactions.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Expense</th><th>Category</th><th>Account</th><th>Date</th><th className="align-right">Amount</th><th aria-label="Actions" /></tr></thead><tbody>{historyData.transactions.map((expense) => <tr key={expense.id}><td><div className="transaction-cell"><span className="transaction-icon debit"><TrendingDown size={16} /></span><div><strong>{expense.title}</strong><small>{expense.description || 'Expense'}</small></div></div></td><td><span className="category-chip">{expense.category}</span></td><td><span className="account-table-cell"><AssetIcon type={expense.asset?.type || 'bank'} size={15} />{expense.asset?.name || 'Unknown account'}</span></td><td>{formatDate(expense.date)}</td><td className="align-right amount-cell amount-negative">−{formatMoney(Number(expense.amount), showBalances)}</td><td><button className="icon-button danger-button" type="button" onClick={() => void deleteExpenseFromHistory(expense.id)} aria-label={`Delete ${expense.title}`}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={<Receipt size={22} />} title="No expenses in this period" copy="Change the period or add an expense to begin analysing it." />}</section></> : <section className="panel"><EmptyState icon={<RefreshCw className={loading ? 'spin' : ''} size={22} />} title="Loading your history" copy="Your spending picture is being prepared." /></section>}
+              <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Time period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={historyFilter === mode ? 'active' : ''} type="button" onClick={() => { setHistoryFilter(mode); if (mode === 'day') setDayRange(defaultRanges.day); if (mode === 'month') setMonthRange(defaultRanges.month); if (mode === 'year') setYearRange(defaultRanges.year); setHistoryPage(1); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div>{historyFilter === 'day' && <><label className="filter-field"><span>From</span><input type="date" value={dayRange.from} max={dayRange.to} onChange={(event) => { setDayRange((range) => ({ ...range, from: event.target.value })); setHistoryPage(1); }} /></label><label className="filter-field"><span>To</span><input type="date" value={dayRange.to} min={dayRange.from} onChange={(event) => { setDayRange((range) => ({ ...range, to: event.target.value })); setHistoryPage(1); }} /></label></>}{historyFilter === 'month' && <><label className="filter-field"><span>From</span><input type="month" value={monthRange.from} max={monthRange.to} onChange={(event) => { setMonthRange((range) => ({ ...range, from: event.target.value })); setHistoryPage(1); }} /></label><label className="filter-field"><span>To</span><input type="month" value={monthRange.to} min={monthRange.from} onChange={(event) => { setMonthRange((range) => ({ ...range, to: event.target.value })); setHistoryPage(1); }} /></label></>}{historyFilter === 'year' && <><label className="filter-field"><span>From</span><input type="number" min="2000" value={yearRange.from} onChange={(event) => { setYearRange((range) => ({ ...range, from: event.target.value })); setHistoryPage(1); }} /></label><label className="filter-field"><span>To</span><input type="number" min={yearRange.from} value={yearRange.to} onChange={(event) => { setYearRange((range) => ({ ...range, to: event.target.value })); setHistoryPage(1); }} /></label></>}<button className="button button-secondary button-small" type="button" onClick={() => void handleLoadHistory()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
+              {historyData ? <><section className="insight-stat-row"><div><span>Total spend in range</span><strong className="amount-negative">{formatMoney(historyData.totalSpending, showBalances)}</strong></div><p>Expenses only · {historyData.pagination.total} recorded transaction{historyData.pagination.total === 1 ? '' : 's'}</p></section><section className="chart-grid"><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Volume</p><h2>Spending over time</h2></div></div><div className="chart-area"><ResponsiveContainer width="100%" height={300}><BarChart data={historyData.timelineData} margin={{ top: 8, right: 5, left: -18, bottom: 25 }}><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e9eceb" /><XAxis dataKey="period" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatTick(value, historyFilter)} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatMoney(Number(value), showBalances, true)} /><Tooltip content={<ChartTooltip visible={showBalances} />} /><Bar dataKey="amount" fill="#0e7a3c" radius={[6, 6, 0, 0]} maxBarSize={52} /></BarChart></ResponsiveContainer></div></article><article className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Distribution</p><h2>Where it went</h2></div></div>{historyData.categoryBreakdown.length ? <div className="category-chart"><ResponsiveContainer width="100%" height={245}><PieChart><Pie data={historyData.categoryBreakdown} dataKey="amount" nameKey="category" innerRadius={62} outerRadius={94} paddingAngle={3}>{historyData.categoryBreakdown.map((_, index) => <Cell fill={PIE_COLORS[index % PIE_COLORS.length]} key={index} />)}</Pie><Tooltip formatter={(value) => formatMoney(Number(value), showBalances)} /></PieChart></ResponsiveContainer><div className="category-legend">{historyData.categoryBreakdown.map((item, index) => <div key={item.category}><span style={{ background: PIE_COLORS[index % PIE_COLORS.length] }} /><span>{item.category}</span><strong>{showBalances ? `${item.percentage}%` : '••%'}</strong></div>)}</div></div> : <EmptyState icon={<BarChart3 size={22} />} title="No category data yet" copy="Your spending distribution will appear after you add expenses." />}</article></section><section className="panel table-panel"><div className="panel-header"><div><p className="panel-kicker">Expense records</p><h2>Transactions in this range</h2></div></div>{historyData.transactions.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Expense</th><th>Category</th><th>Account</th><th>Date</th><th className="align-right">Amount</th><th aria-label="Actions" /></tr></thead><tbody>{historyData.transactions.map((expense) => <tr key={expense.id}><td><div className="transaction-cell"><span className="transaction-icon debit"><TrendingDown size={16} /></span><div><strong>{expense.title}</strong><small>{expense.description || 'Expense'}</small></div></div></td><td><span className="category-chip">{expense.category}</span></td><td><span className="account-table-cell"><AssetIcon type={expense.asset?.type || 'bank'} size={15} />{expense.asset?.name || 'Unknown account'}</span></td><td>{formatDate(expense.date)}</td><td className="align-right amount-cell amount-negative">−{formatMoney(Number(expense.amount), showBalances)}</td><td><button className="icon-button danger-button" type="button" onClick={() => void deleteExpenseFromHistory(expense.id)} aria-label={`Delete ${expense.title}`}><Trash2 size={16} /></button></td></tr>)}</tbody></table>
+                {historyData.pagination.totalPages > 1 && (
+                  <Pagination
+                    currentPage={historyPage}
+                    totalPages={historyData.pagination.totalPages}
+                    onPageChange={setHistoryPage}
+                  />
+                )}
+              </div> : <EmptyState icon={<Receipt size={22} />} title="No expenses in this period" copy="Change the period or add an expense to begin analysing it." />}</section></> : <section className="panel"><EmptyState icon={<RefreshCw className={loading ? 'spin' : ''} size={22} />} title="Loading your history" copy="Your spending picture is being prepared." /></section>}
             </> : <>
               <section className="filter-panel insight-filter"><div className="filter-label"><ListFilter size={17} /><span>Comparison period</span></div><div className="segmented-control">{(['day', 'month', 'year'] as const).map((mode) => <button key={mode} className={averageFilter === mode ? 'active' : ''} type="button" onClick={() => { setAverageFilter(mode); setAverageRange(defaultRanges[mode]); }}>{mode === 'day' ? 'Daily' : mode === 'month' ? 'Monthly' : 'Yearly'}</button>)}</div><label className="filter-field"><span>From</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} value={averageRange.from} onChange={(event) => setAverageRange((range) => ({ ...range, from: event.target.value }))} /></label><label className="filter-field"><span>To</span><input type={averageFilter === 'day' ? 'date' : averageFilter === 'month' ? 'month' : 'number'} min={averageRange.from} value={averageRange.to} onChange={(event) => setAverageRange((range) => ({ ...range, to: event.target.value }))} /></label><button className="button button-secondary button-small" type="button" onClick={() => void handleLoadAverages()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={15} />Refresh</button></section>
               {averagesData ? <><section className="average-hero"><div><span>Average spend per {averageFilter}</span><strong>{formatMoney(averagesData.meanValue, showBalances)}</strong></div><p>Calculated from expenses only across the selected period.</p></section><section className="panel chart-panel"><div className="panel-header"><div><p className="panel-kicker">Pattern</p><h2>Average spending comparison</h2></div><span className="chart-summary">Mean {formatMoney(averagesData.meanValue, showBalances, true)}</span></div><div className="chart-area chart-area-large"><ResponsiveContainer width="100%" height={370}><BarChart data={averagesData.periodData} margin={{ top: 8, right: 5, left: -18, bottom: 30 }}><CartesianGrid strokeDasharray="3 4" vertical={false} stroke="#e9eceb" /><XAxis dataKey="period" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatTick(value, averageFilter)} /><YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#718078' }} tickFormatter={(value) => formatMoney(Number(value), showBalances, true)} /><Tooltip content={<ChartTooltip visible={showBalances} />} /><Bar dataKey="amount" fill="#1e293b" radius={[6, 6, 0, 0]} maxBarSize={60} /></BarChart></ResponsiveContainer></div></section><section className="insight-note"><TrendingUp size={19} /><p>Use a narrower date range to spot routines rather than isolated large purchases. The average always excludes income.</p></section></> : <section className="panel"><EmptyState icon={<RefreshCw className={loading ? 'spin' : ''} size={22} />} title="Calculating your average" copy="Your expense comparison is being prepared." /></section>}

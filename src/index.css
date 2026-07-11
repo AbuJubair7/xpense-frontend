@@ -18,9 +18,9 @@ button, input, select { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(14, 122, 60, .24); outline-offset: 2px; }
 
 /* Authentication */
-.auth-layout { display: grid; grid-template-columns: minmax(340px, .94fr) minmax(430px, 1.06fr); min-height: 100vh; }
+.auth-layout { display: grid; grid-template-columns: minmax(340px, .94fr) minmax(430px, 1.06fr); height: 100vh; overflow: hidden; }
 .auth-brief { display: flex; flex-direction: column; min-height: 100%; padding: clamp(34px, 5vw, 72px); color: #f7fbf7; background: #10251a; background-image: radial-gradient(circle at 18% 72%, rgba(87, 178, 113, .28), transparent 30rem), linear-gradient(135deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: auto, 28px 28px; }
-.brand { display: inline-flex; align-items: center; gap: 9px; width: fit-content; font-size: 1.18rem; font-weight: 800; letter-spacing: -.055em; }
+.brand { display: inline-flex; align-items: center; gap: 0px; width: fit-content; font-size: 1.18rem; font-weight: 800; letter-spacing: -.055em; }
 .brand-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; font-family: 'DM Mono', monospace; font-size: .93rem; letter-spacing: -.11em; }
 .brand-light { color: #f7fbf7; }
 .brand-light .brand-mark { color: #10251a; background: #f7fbf7; }
@@ -34,7 +34,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .auth-brief-points { display: grid; gap: 14px; color: #d4e3d7; font-size: .88rem; }
 .auth-brief-points span { display: inline-flex; align-items: center; gap: 9px; }
 .auth-brief-points svg { color: #82dc9c; }
-.auth-panel { display: grid; place-items: center; padding: 36px; background: #fbfcfb; }
+.auth-panel { display: grid; place-items: center; padding: 36px; background: #fbfcfb; overflow-y: auto; }
 .auth-card { width: min(100%, 430px); }
 .auth-card > .brand { margin-bottom: 54px; }
 .auth-card h2 { margin: 0; color: #10251a; font-size: clamp(1.9rem, 3vw, 2.55rem); line-height: 1.12; letter-spacing: -.065em; }
@@ -330,12 +330,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 }
 
 @media (max-width: 880px) {
-  .auth-layout { grid-template-columns: 1fr; }
+  .auth-layout { grid-template-columns: 1fr; height: auto; overflow: visible; }
   .auth-brief { min-height: 330px; padding: 30px 28px; }
   .auth-brief-copy { margin: auto 0 16px; padding: 45px 0 15px; }
   .auth-brief h1 { max-width: 590px; font-size: clamp(2rem, 6vw, 3.1rem); }
   .auth-brief-copy > p:last-child { display: none; }
-  .auth-panel { padding: 42px 24px; }
+  .auth-panel { padding: 42px 24px; overflow-y: visible; }
   .sidebar { display: none; }
   .app-shell, .app-shell.sidebar-is-collapsed { display: block; }
   .mobile-header { display: flex; align-items: center; justify-content: space-between; min-height: 62px; padding: 0 20px; color: #fff; background: #10251a; }
@@ -414,4 +414,49 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .metric-card { min-height: auto; }
   .balance-hero-metrics { grid-template-columns: 1fr; }
   .hero-actions { grid-template-columns: 1fr; }
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 20px;
+  border-top: 1px solid #dae4dc;
+  background: #fbfcfb;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+.pagination-numbers {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pagination-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #5b6b61;
+  font-size: 0.85rem;
+  font-weight: 700;
+  transition: all 150ms ease;
+}
+.pagination-number:hover:not(:disabled) {
+  background: #f1f4f1;
+}
+.pagination-number.active {
+  color: #166332;
+  background: #eaf6ed;
+  border-color: #d1ebd8;
+}
+.pagination-ellipsis {
+  color: #88948c;
+  padding: 0 4px;
+  font-weight: 700;
+  letter-spacing: 1px;
 }
