@@ -247,6 +247,7 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const [modal, setModal] = useState<Modal>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [assetDraft, setAssetDraft] = useState({ id: '', name: '', type: 'bank' as Asset['type'], balance: '' });
   const [incomeDraft, setIncomeDraft] = useState({ source: '', amount: '', date: today(), description: '', assetId: '' });
   const [expenseDraft, setExpenseDraft] = useState({ title: '', amount: '', category: 'Food', date: today(), description: '', assetId: '' });
@@ -405,6 +406,8 @@ export default function App() {
 
   const handleAsset = async (event: FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     const balance = Number(assetDraft.balance);
     if (!assetDraft.name.trim() || Number.isNaN(balance) || balance < 0) {
       setError('Enter an account name and a valid non-negative balance.');
@@ -417,22 +420,30 @@ export default function App() {
       await loadOverview();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to save account.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDeleteAsset = async () => {
+    if (isSubmitting) return;
     if (!assetDraft.id || !confirm('Delete this account? This cannot be undone.')) return;
+    setIsSubmitting(true);
     try {
       await api.deleteAsset(assetDraft.id);
       closeModal();
       await loadOverview();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to delete account.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleIncome = async (event: FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     const amount = Number(incomeDraft.amount);
     const assetId = incomeDraft.assetId || assets[0]?.id || '';
     if (!incomeDraft.source.trim() || !assetId || !amount || amount < 0) {
@@ -446,11 +457,15 @@ export default function App() {
       await loadOverview();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add income.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleExpense = async (event: FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     const amount = Number(expenseDraft.amount);
     const assetId = expenseDraft.assetId || assets[0]?.id || '';
     if (!expenseDraft.title.trim() || !assetId || !amount || amount < 0) {
@@ -464,11 +479,15 @@ export default function App() {
       await loadOverview();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add expense.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleLoan = async (event: FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     const amount = Number(loanDraft.amount);
     if (!loanDraft.debtorName.trim() || !amount || amount < 0) {
       setError('Complete the required loan fields.');
@@ -481,11 +500,15 @@ export default function App() {
       await Promise.all([loadOverview(), handleLoadLoans()]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add loan.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleBorrowing = async (event: FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     const amount = Number(borrowingDraft.amount);
     if (!borrowingDraft.lenderName.trim() || !amount || amount < 0) {
       setError('Complete the required borrowing fields.');
@@ -498,6 +521,8 @@ export default function App() {
       await Promise.all([loadOverview(), handleLoadBorrowings()]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add borrowing.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -547,6 +572,8 @@ export default function App() {
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     if (!currentUser) return;
     const nextName = profileName.trim();
     if (!nextName) {
@@ -953,21 +980,21 @@ export default function App() {
         {page === 'profile' && (
           <>
             <PageHeader eyebrow="Profile & settings" title="Make the workspace yours" description="Manage how your name and financial values appear while keeping the rest of the app focused." />
-            <section className="profile-grid"><article className="panel profile-card"><div className="profile-card-head"><span className="profile-avatar">{currentUser.name.charAt(0).toUpperCase()}</span><div><h2>{currentUser.name}</h2><p>{currentUser.email}</p></div></div><form className="profile-form" onSubmit={saveProfile}><label>Display name<input value={profileName} onChange={(event) => { setProfileName(event.target.value); setProfileMessage(''); }} placeholder="Your name" /></label><label>Email address<input value={currentUser.email} readOnly aria-describedby="email-help" /><small id="email-help">Email changes need a backend account endpoint, which is not currently available.</small></label>{profileMessage && <p className="profile-message">{profileMessage}</p>}<button className="button button-primary" type="submit"><Check size={16} />Save display name</button></form></article><article className="panel preference-card"><div><p className="panel-kicker">Privacy</p><h2>Balance visibility</h2><p>Hide values throughout the workspace when you are sharing a screen or working in public.</p></div><button className={`preference-toggle ${showBalances ? 'on' : ''}`} type="button" onClick={toggleBalances} aria-pressed={showBalances}><span>{showBalances ? <Eye size={16} /> : <EyeOff size={16} />}</span><span>{showBalances ? 'Balances visible' : 'Balances hidden'}</span></button><div className="preference-tip"><Settings2 size={17} /> This preference is saved in this browser.</div></article></section>
+            <section className="profile-grid"><article className="panel profile-card"><div className="profile-card-head"><span className="profile-avatar">{currentUser.name.charAt(0).toUpperCase()}</span><div><h2>{currentUser.name}</h2><p>{currentUser.email}</p></div></div><form className="profile-form" onSubmit={saveProfile}><label>Display name<input value={profileName} onChange={(event) => { setProfileName(event.target.value); setProfileMessage(''); }} placeholder="Your name" /></label><label>Email address<input value={currentUser.email} readOnly aria-describedby="email-help" /><small id="email-help">Email changes need a backend account endpoint, which is not currently available.</small></label>{profileMessage && <p className="profile-message">{profileMessage}</p>}<button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Saving</> : <><Check size={16} />Save display name</>}</button></form></article><article className="panel preference-card"><div><p className="panel-kicker">Privacy</p><h2>Balance visibility</h2><p>Hide values throughout the workspace when you are sharing a screen or working in public.</p></div><button className={`preference-toggle ${showBalances ? 'on' : ''}`} type="button" onClick={toggleBalances} aria-pressed={showBalances}><span>{showBalances ? <Eye size={16} /> : <EyeOff size={16} />}</span><span>{showBalances ? 'Balances visible' : 'Balances hidden'}</span></button><div className="preference-tip"><Settings2 size={17} /> This preference is saved in this browser.</div></article></section>
 
           </>
         )}
       </main>
 
-      {modal === 'asset' && <ModalShell title={assetDraft.id ? 'Edit account' : 'Add an account'} subtitle="Keep each balance separate and easy to reconcile." onClose={closeModal}><form className="modal-form" onSubmit={handleAsset}><label>Account name<input value={assetDraft.name} onChange={(event) => setAssetDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="e.g. City Bank" required /></label><label>Account type<select value={assetDraft.type} onChange={(event) => setAssetDraft((draft) => ({ ...draft, type: event.target.value as Asset['type'] }))}><option value="bank">Bank account</option><option value="wallet">Digital wallet</option><option value="on_hand">Cash on hand</option></select></label><label>Current balance<input type="number" min="0" step="0.01" value={assetDraft.balance} onChange={(event) => setAssetDraft((draft) => ({ ...draft, balance: event.target.value }))} placeholder="0.00" required /></label><footer className="modal-actions">{assetDraft.id ? <button className="button button-danger-quiet" type="button" onClick={() => void handleDeleteAsset()}><Trash2 size={16} />Delete</button> : <span />}<div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit">{assetDraft.id ? 'Save changes' : 'Add account'}</button></div></footer></form></ModalShell>}
+      {modal === 'asset' && <ModalShell title={assetDraft.id ? 'Edit account' : 'Add an account'} subtitle="Keep each balance separate and easy to reconcile." onClose={closeModal}><form className="modal-form" onSubmit={handleAsset}><label>Account name<input value={assetDraft.name} onChange={(event) => setAssetDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="e.g. City Bank" required /></label><label>Account type<select value={assetDraft.type} onChange={(event) => setAssetDraft((draft) => ({ ...draft, type: event.target.value as Asset['type'] }))}><option value="bank">Bank account</option><option value="wallet">Digital wallet</option><option value="on_hand">Cash on hand</option></select></label><label>Current balance<input type="number" min="0" step="0.01" value={assetDraft.balance} onChange={(event) => setAssetDraft((draft) => ({ ...draft, balance: event.target.value }))} placeholder="0.00" required /></label><footer className="modal-actions">{assetDraft.id ? <button className="button button-danger-quiet" type="button" onClick={() => void handleDeleteAsset()} disabled={isSubmitting}><Trash2 size={16} />Delete</button> : <span />}<div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />{assetDraft.id ? 'Saving' : 'Adding'}</> : (assetDraft.id ? 'Save changes' : 'Add account')}</button></div></footer></form></ModalShell>}
 
-      {modal === 'income' && <ModalShell title="Add income" subtitle="Record money coming into one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleIncome}><label>Income source<input value={incomeDraft.source} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, source: event.target.value }))} placeholder="e.g. Salary" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={incomeDraft.amount} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date<input type="date" value={incomeDraft.date} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Deposit account<select value={incomeDraft.assetId || assets[0]?.id || ''} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label>Notes <span>(optional)</span><input value={incomeDraft.description} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit"><TrendingUp size={16} />Add income</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Income needs an account destination." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
+      {modal === 'income' && <ModalShell title="Add income" subtitle="Record money coming into one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleIncome}><label>Income source<input value={incomeDraft.source} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, source: event.target.value }))} placeholder="e.g. Salary" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={incomeDraft.amount} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date<input type="date" value={incomeDraft.date} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Deposit account<select value={incomeDraft.assetId || assets[0]?.id || ''} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label>Notes <span>(optional)</span><input value={incomeDraft.description} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Adding</> : <><TrendingUp size={16} />Add income</>}</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Income needs an account destination." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
 
-      {modal === 'expense' && <ModalShell title="Add expense" subtitle="Record money leaving one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleExpense}><label>Expense title<input value={expenseDraft.title} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, title: event.target.value }))} placeholder="e.g. Weekly groceries" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={expenseDraft.amount} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Category<select value={expenseDraft.category} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, category: event.target.value }))}>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label></div><div className="form-two-column"><label>Date<input type="date" value={expenseDraft.date} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label><label>Paid from<select value={expenseDraft.assetId || assets[0]?.id || ''} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></div><label>Notes <span>(optional)</span><input value={expenseDraft.description} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit"><TrendingDown size={16} />Add expense</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Expenses need an account source." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
+      {modal === 'expense' && <ModalShell title="Add expense" subtitle="Record money leaving one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleExpense}><label>Expense title<input value={expenseDraft.title} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, title: event.target.value }))} placeholder="e.g. Weekly groceries" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={expenseDraft.amount} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Category<select value={expenseDraft.category} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, category: event.target.value }))}>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label></div><div className="form-two-column"><label>Date<input type="date" value={expenseDraft.date} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label><label>Paid from<select value={expenseDraft.assetId || assets[0]?.id || ''} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></div><label>Notes <span>(optional)</span><input value={expenseDraft.description} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Adding</> : <><TrendingDown size={16} />Add expense</>}</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Expenses need an account source." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
 
-      {modal === 'loan' && <ModalShell title="Record money lent" subtitle="Keep the person, amount, and date ready for follow-up." onClose={closeModal}><form className="modal-form" onSubmit={handleLoan}><label>Who owes you?<input value={loanDraft.debtorName} onChange={(event) => setLoanDraft((draft) => ({ ...draft, debtorName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={loanDraft.amount} onChange={(event) => setLoanDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date lent<input type="date" value={loanDraft.date} onChange={(event) => setLoanDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={loanDraft.description} onChange={(event) => setLoanDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit">Record loan</button></div></footer></form></ModalShell>}
+      {modal === 'loan' && <ModalShell title="Record money lent" subtitle="Keep the person, amount, and date ready for follow-up." onClose={closeModal}><form className="modal-form" onSubmit={handleLoan}><label>Who owes you?<input value={loanDraft.debtorName} onChange={(event) => setLoanDraft((draft) => ({ ...draft, debtorName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={loanDraft.amount} onChange={(event) => setLoanDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date lent<input type="date" value={loanDraft.date} onChange={(event) => setLoanDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={loanDraft.description} onChange={(event) => setLoanDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Recording</> : 'Record loan'}</button></div></footer></form></ModalShell>}
 
-      {modal === 'borrowing' && <ModalShell title="Record money borrowed" subtitle="Keep repayment obligations visible and organised." onClose={closeModal}><form className="modal-form" onSubmit={handleBorrowing}><label>Who lent you money?<input value={borrowingDraft.lenderName} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, lenderName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={borrowingDraft.amount} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date borrowed<input type="date" value={borrowingDraft.date} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={borrowingDraft.description} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit">Record borrowing</button></div></footer></form></ModalShell>}
+      {modal === 'borrowing' && <ModalShell title="Record money borrowed" subtitle="Keep repayment obligations visible and organised." onClose={closeModal}><form className="modal-form" onSubmit={handleBorrowing}><label>Who lent you money?<input value={borrowingDraft.lenderName} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, lenderName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={borrowingDraft.amount} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date borrowed<input type="date" value={borrowingDraft.date} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={borrowingDraft.description} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Recording</> : 'Record borrowing'}</button></div></footer></form></ModalShell>}
     </div>
   );
 }
