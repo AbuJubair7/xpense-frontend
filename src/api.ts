@@ -1,6 +1,6 @@
 // Relative URL — Vite proxies /api → localhost:5001 on the server.
 // This works for both local dev AND Cloudflare tunnel (users never hit port 5001 directly).
-const API_BASE_URL = '/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export interface Asset {
   id: string;
@@ -63,11 +63,45 @@ export interface TimelineData {
   amount: number;
 }
 
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export interface HistoryResponse {
   transactions: Expense[];
+  pagination: PaginationMeta;
   totalSpending: number;
   categoryBreakdown: CategoryBreakdown[];
   timelineData: TimelineData[];
+}
+
+export interface SummaryResponse {
+  periodIncome: number;
+  periodExpenses: number;
+  outstandingLoans: number;
+  outstandingBorrowings: number;
+  outstandingLoansCount: number;
+  outstandingBorrowingsCount: number;
+}
+
+export interface ActivityItem {
+  id: string;
+  kind: 'credit' | 'debit';
+  title: string;
+  description?: string;
+  amount: number;
+  date: string;
+  assetId: string;
+  assetName: string;
+  assetType: Asset['type'];
+}
+
+export interface ActivityResponse {
+  data: ActivityItem[];
+  pagination: PaginationMeta;
 }
 
 export interface AveragesResponse {
@@ -122,21 +156,36 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(errorData.message || 'Request failed');
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  const text = await response.text();
+  return (text ? JSON.parse(text) : {}) as T;
 }
+
+export type LoginCredentials = { email: string; password: string };
+export type RegisterCredentials = { name: string; email: string; password: string };
 
 export const api = {
   // Auth
-  register: (data: { name: string; email: string; passwordPlain: string }) => 
+  register: (data: RegisterCredentials) => 
     request<{ message: string; user: AuthUser }>('/auth/register', { 
       method: 'POST', 
-      body: JSON.stringify({ name: data.name, email: data.email, password: data.passwordPlain }) 
+      body: JSON.stringify({ name: data.name, email: data.email, password: data.password }) 
     }),
-  login: (data: { email: string; passwordPlain: string }) => 
+  login: (data: LoginCredentials) => 
     request<LoginResponse>('/auth/login', { 
       method: 'POST', 
-      body: JSON.stringify({ email: data.email, password: data.passwordPlain }) 
+      body: JSON.stringify(data) 
     }),
+  googleLogin: (credential: string) =>
+    request<LoginResponse>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    }),
+  updateProfile: (data: { name: string }) => 
+    request<AuthUser>('/users/profile', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Assets
   getAssets: () => request<Asset[]>('/assets'),
@@ -148,16 +197,13 @@ export const api = {
     request<void>(`/assets/${id}`, { method: 'DELETE' }),
 
   // Loans
-  getLoans: () => request<Loan[]>('/loans'),
-  createLoan: (data: { debtorName: string; amount: number; date: string; description?: string }) => 
-    request<Loan>('/loans', { method: 'POST', body: JSON.stringify(data) }),
-  settleLoan: (id: string) => 
-    request<Loan>(`/loans/${id}/settle`, { method: 'PATCH' }),
-  deleteLoan: (id: string) => 
-    request<void>(`/loans/${id}`, { method: 'DELETE' }),
+  getLoans: (page = 1, limit = 10) => request<{ data: Loan[]; pagination: PaginationMeta }>(`/loans?page=${page}&limit=${limit}`),
+  createLoan: (data: Partial<Loan>) => request<Loan>('/loans', { method: 'POST', body: JSON.stringify(data) }),
+  settleLoan: (id: string) => request<Loan>(`/loans/${id}/settle`, { method: 'PATCH' }),
+  deleteLoan: (id: string) => request<void>(`/loans/${id}`, { method: 'DELETE' }),
 
   // Borrowings (Borrowed Money)
-  getBorrowings: () => request<Borrowing[]>('/borrowings'),
+  getBorrowings: (page = 1, limit = 10) => request<{ data: Borrowing[]; pagination: PaginationMeta }>(`/borrowings?page=${page}&limit=${limit}`),
   createBorrowing: (data: { lenderName: string; amount: number; date: string; description?: string }) => 
     request<Borrowing>('/borrowings', { method: 'POST', body: JSON.stringify(data) }),
   settleBorrowing: (id: string) => 
@@ -180,7 +226,19 @@ export const api = {
     request<void>(`/expenses/${id}`, { method: 'DELETE' }),
 
   // Analytics
+  getSummary: () => request<SummaryResponse>('/analytics/summary'),
+  
+  getActivity: (params: { page: number; limit: number; fromDate?: string; toDate?: string; kind?: 'all' | 'credit' | 'debit'; assetId?: string }) => {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null) searchParams.append(key, String(val));
+    });
+    return request<ActivityResponse>(`/analytics/activity?${searchParams.toString()}`);
+  },
+
   getHistory: (params: {
+    page?: number;
+    limit?: number;
     fromDay?: string;
     toDay?: string;
     fromMonth?: string;
@@ -190,7 +248,7 @@ export const api = {
   }) => {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, val]) => {
-      if (val) searchParams.append(key, val);
+      if (val !== undefined && val !== null) searchParams.append(key, String(val));
     });
     return request<HistoryResponse>(`/analytics/history?${searchParams.toString()}`);
   },
