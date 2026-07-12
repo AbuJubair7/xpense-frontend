@@ -250,8 +250,8 @@ export default function App() {
   const [loansData, setLoansData] = useState<{ data: Loan[]; pagination: Page } | null>(null);
   const [borrowingsData, setBorrowingsData] = useState<{ data: Borrowing[]; pagination: Page } | null>(null);
 
-  const [settlingLoanId, setSettlingLoanId] = useState<string | null>(null);
-  const [settlingBorrowingId, setSettlingBorrowingId] = useState<string | null>(null);
+  const [settlingLoan, setSettlingLoan] = useState<{id: string, action: 'settling' | 'reverting'} | null>(null);
+  const [settlingBorrowing, setSettlingBorrowing] = useState<{id: string, action: 'paying' | 'reverting'} | null>(null);
   const [loansPage, setLoansPage] = useState(1);
   const [borrowingsPage, setBorrowingsPage] = useState(1);
 
@@ -469,18 +469,18 @@ export default function App() {
     }
   };
 
-  const settleLoan = async (id: string) => {
-    setSettlingLoanId(id);
+  const settleLoan = async (id: string, currentlySettled: boolean) => {
+    setSettlingLoan({ id, action: currentlySettled ? 'reverting' : 'settling' });
     try { await api.settleLoan(id); await Promise.all([loadOverview(), handleLoadLoans()]); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update loan.'); }
-    finally { setSettlingLoanId(null); }
+    finally { setSettlingLoan(null); }
   };
 
-  const settleBorrowing = async (id: string) => {
-    setSettlingBorrowingId(id);
+  const settleBorrowing = async (id: string, currentlySettled: boolean) => {
+    setSettlingBorrowing({ id, action: currentlySettled ? 'reverting' : 'paying' });
     try { await api.settleBorrowing(id); await Promise.all([loadOverview(), handleLoadBorrowings()]); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update borrowing.'); }
-    finally { setSettlingBorrowingId(null); }
+    finally { setSettlingBorrowing(null); }
   };
 
   const deleteLoan = async (id: string) => {
@@ -821,7 +821,7 @@ export default function App() {
                 <div className="panel-header"><div><p className="panel-kicker">Receivable</p><h2>Money you lent</h2></div><button className="icon-button" type="button" onClick={() => setModal('loan')} aria-label="Record money lent"><Plus size={18} /></button></div>
                 {loansData?.data?.length ? (
                   <>
-                    <div className="debt-list">{loansData.data.map((loan) => <div className="debt-row" key={loan.id}><div className="debt-person"><span className="person-avatar">{loan.debtorName.charAt(0).toUpperCase()}</span><div><strong>{loan.debtorName}</strong><span>{formatDate(loan.date)}{loan.description ? ` · ${loan.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={loan.isSettled ? 'amount-muted' : 'amount-amber'}>{formatMoney(Number(loan.amount), showBalances)}</strong><button className={`status-button ${loan.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleLoan(loan.id)} disabled={settlingLoanId === loan.id}>{settlingLoanId === loan.id ? (loan.isSettled ? <><RefreshCw className="spin" size={14} />Reverting</> : <><RefreshCw className="spin" size={14} />Settling</>) : (loan.isSettled ? <><Check size={14} />Settled</> : 'Settle')}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteLoan(loan.id)} aria-label={`Delete loan for ${loan.debtorName}`}><Trash2 size={16} /></button></div></div>)}</div>
+                    <div className="debt-list">{loansData.data.map((loan) => <div className="debt-row" key={loan.id}><div className="debt-person"><span className="person-avatar">{loan.debtorName.charAt(0).toUpperCase()}</span><div><strong>{loan.debtorName}</strong><span>{formatDate(loan.date)}{loan.description ? ` · ${loan.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={loan.isSettled ? 'amount-muted' : 'amount-amber'}>{formatMoney(Number(loan.amount), showBalances)}</strong><button className={`status-button ${loan.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleLoan(loan.id, loan.isSettled)} disabled={settlingLoan?.id === loan.id}>{settlingLoan?.id === loan.id ? (settlingLoan.action === 'reverting' ? <><RefreshCw className="spin" size={14} />Reverting</> : <><RefreshCw className="spin" size={14} />Settling</>) : (loan.isSettled ? <><Check size={14} />Settled</> : 'Settle')}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteLoan(loan.id)} aria-label={`Delete loan for ${loan.debtorName}`}><Trash2 size={16} /></button></div></div>)}</div>
                     {loansData.pagination.totalPages > 1 && (
                       <Pagination
                         currentPage={loansPage}
@@ -836,7 +836,7 @@ export default function App() {
                 <div className="panel-header"><div><p className="panel-kicker">Payable</p><h2>Money you borrowed</h2></div><button className="icon-button" type="button" onClick={() => setModal('borrowing')} aria-label="Record money borrowed"><Plus size={18} /></button></div>
                 {borrowingsData?.data?.length ? (
                   <>
-                    <div className="debt-list">{borrowingsData.data.map((borrowing) => <div className="debt-row" key={borrowing.id}><div className="debt-person"><span className="person-avatar person-avatar-red">{borrowing.lenderName.charAt(0).toUpperCase()}</span><div><strong>{borrowing.lenderName}</strong><span>{formatDate(borrowing.date)}{borrowing.description ? ` · ${borrowing.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={borrowing.isSettled ? 'amount-muted' : 'amount-negative'}>{formatMoney(Number(borrowing.amount), showBalances)}</strong><button className={`status-button ${borrowing.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleBorrowing(borrowing.id)} disabled={settlingBorrowingId === borrowing.id}>{settlingBorrowingId === borrowing.id ? (borrowing.isSettled ? <><RefreshCw className="spin" size={14} />Reverting</> : <><RefreshCw className="spin" size={14} />Paying</>) : (borrowing.isSettled ? <><Check size={14} />Paid</> : 'Mark paid')}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteBorrowing(borrowing.id)} aria-label={`Delete borrowing from ${borrowing.lenderName}`}><Trash2 size={16} /></button></div></div>)}</div>
+                    <div className="debt-list">{borrowingsData.data.map((borrowing) => <div className="debt-row" key={borrowing.id}><div className="debt-person"><span className="person-avatar person-avatar-red">{borrowing.lenderName.charAt(0).toUpperCase()}</span><div><strong>{borrowing.lenderName}</strong><span>{formatDate(borrowing.date)}{borrowing.description ? ` · ${borrowing.description}` : ''}</span></div></div><div className="debt-row-actions"><strong className={borrowing.isSettled ? 'amount-muted' : 'amount-negative'}>{formatMoney(Number(borrowing.amount), showBalances)}</strong><button className={`status-button ${borrowing.isSettled ? 'is-settled' : ''}`} type="button" onClick={() => void settleBorrowing(borrowing.id, borrowing.isSettled)} disabled={settlingBorrowing?.id === borrowing.id}>{settlingBorrowing?.id === borrowing.id ? (settlingBorrowing.action === 'reverting' ? <><RefreshCw className="spin" size={14} />Reverting</> : <><RefreshCw className="spin" size={14} />Paying</>) : (borrowing.isSettled ? <><Check size={14} />Paid</> : 'Mark paid')}</button><button className="icon-button danger-button" type="button" onClick={() => void deleteBorrowing(borrowing.id)} aria-label={`Delete borrowing from ${borrowing.lenderName}`}><Trash2 size={16} /></button></div></div>)}</div>
                     {borrowingsData.pagination.totalPages > 1 && (
                       <Pagination
                         currentPage={borrowingsPage}
