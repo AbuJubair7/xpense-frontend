@@ -1,6 +1,6 @@
 // Relative URL — Vite proxies /api → localhost:5001 on the server.
 // This works for both local dev AND Cloudflare tunnel (users never hit port 5001 directly).
-const API_BASE_URL = '/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export interface Asset {
   id: string;
