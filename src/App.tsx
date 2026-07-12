@@ -659,7 +659,7 @@ export default function App() {
       </header>
 
       {mobileNavOpen && (
-        <div className="mobile-navigation">
+        <div className="mobile-navigation" onClick={(e) => { if (e.target === e.currentTarget) setMobileNavOpen(false); }}>
           <div className="mobile-navigation-card">
             <div className="mobile-user"><span className="avatar">{currentUser.name.charAt(0).toUpperCase()}</span><div><strong>{currentUser.name}</strong><span>{currentUser.email}</span></div></div>
             {navItems.map((item) => <button key={item.id} className={`mobile-nav-button ${page === item.id ? 'active' : ''}`} type="button" onClick={() => goToPage(item.id)}>{item.icon}<span>{item.label}</span></button>)}

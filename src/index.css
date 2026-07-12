@@ -344,7 +344,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .mobile-header-actions { display: flex; gap: 7px; }
   .icon-button-dark { color: #eff9f0; border-color: rgba(255,255,255,.15); background: rgba(255,255,255,.07); }
   .icon-button-dark:hover { background: rgba(255,255,255,.14); }
-  .mobile-navigation { position: fixed; z-index: 20; inset: 62px 0 0; padding: 14px; background: rgba(8, 28, 15, .42); }
+  .mobile-navigation { display: block; position: fixed; z-index: 20; inset: 62px 0 0; padding: 14px; background: rgba(8, 28, 15, .42); }
   .mobile-navigation-card { display: grid; gap: 3px; max-width: 480px; margin: 0 auto; padding: 13px; border: 1px solid #dae4dc; border-radius: 13px; background: #fff; box-shadow: 0 16px 40px rgba(13, 30, 19, .25); }
   .mobile-user { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 7px; }
   .mobile-user > div { display: grid; gap: 1px; min-width: 0; }
