@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api, setAuthToken } from './api';
-import type { Asset, Loan, Borrowing, HistoryResponse, AveragesResponse, AuthUser, SummaryResponse, ActivityItem } from './api';
+import type { Asset, HistoryResponse, AveragesResponse, AuthUser, SummaryResponse, ActivityItem } from './api';
 
 interface AppState {
   currentUser: AuthUser | null;

@@ -174,6 +174,11 @@ export const api = {
       method: 'POST', 
       body: JSON.stringify(data) 
     }),
+  googleLogin: (credential: string) =>
+    request<LoginResponse>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    }),
   updateProfile: (data: { name: string }) => 
     request<AuthUser>('/users/profile', { method: 'PATCH', body: JSON.stringify(data) }),
 
@@ -187,13 +192,13 @@ export const api = {
     request<void>(`/assets/${id}`, { method: 'DELETE' }),
 
   // Loans
-  getLoans: (page = 1, limit = 10) => request<{ data: Loan[]; pagination: Page }>(`/loans?page=${page}&limit=${limit}`),
+  getLoans: (page = 1, limit = 10) => request<{ data: Loan[]; pagination: PaginationMeta }>(`/loans?page=${page}&limit=${limit}`),
   createLoan: (data: Partial<Loan>) => request<Loan>('/loans', { method: 'POST', body: JSON.stringify(data) }),
   settleLoan: (id: string) => request<Loan>(`/loans/${id}/settle`, { method: 'PATCH' }),
   deleteLoan: (id: string) => request<void>(`/loans/${id}`, { method: 'DELETE' }),
 
   // Borrowings (Borrowed Money)
-  getBorrowings: (page = 1, limit = 10) => request<{ data: Borrowing[]; pagination: Page }>(`/borrowings?page=${page}&limit=${limit}`),
+  getBorrowings: (page = 1, limit = 10) => request<{ data: Borrowing[]; pagination: PaginationMeta }>(`/borrowings?page=${page}&limit=${limit}`),
   createBorrowing: (data: { lenderName: string; amount: number; date: string; description?: string }) => 
     request<Borrowing>('/borrowings', { method: 'POST', body: JSON.stringify(data) }),
   settleBorrowing: (id: string) => 
