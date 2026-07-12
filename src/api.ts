@@ -156,7 +156,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(errorData.message || 'Request failed');
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  const text = await response.text();
+  return (text ? JSON.parse(text) : {}) as T;
 }
 
 export type LoginCredentials = { email: string; password: string };
