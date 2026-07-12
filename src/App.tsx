@@ -73,12 +73,15 @@ const defaultRanges = {
 
 function formatMoney(value: number, visible: boolean, compact = false) {
   if (!visible) return '••••••';
-  return new Intl.NumberFormat('en-BD', {
+  const formatted = new Intl.NumberFormat('en-BD', {
     style: 'currency',
     currency: 'BDT',
+    currencyDisplay: 'narrowSymbol',
     notation: compact ? 'compact' : 'standard',
     maximumFractionDigits: compact ? 1 : 2,
   }).format(value).replace(/-/g, '').replace(/−/g, '');
+  
+  return formatted.replace(/BDT/i, '৳').replace(/(৳)\s+/g, '$1');
 }
 
 function formatDate(value: string) {
