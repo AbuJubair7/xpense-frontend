@@ -405,6 +405,15 @@ export default function App() {
     setModal('asset');
   };
 
+
+  async function refreshCurrentView() {
+    await loadOverview();
+    if (page === 'activity') await handleLoadActivity();
+    if (page === 'insights' && insightMode === 'history') await handleLoadHistory();
+    if (page === 'insights' && insightMode === 'averages') await handleLoadAverages();
+    if (page === 'debts') await Promise.all([handleLoadLoans(), handleLoadBorrowings()]);
+  }
+
   const handleAsset = async (event: FormEvent) => {
     event.preventDefault();
     if (isSubmitting) return;
@@ -418,7 +427,7 @@ export default function App() {
       if (assetDraft.id) await api.updateAsset(assetDraft.id, { name: assetDraft.name.trim(), type: assetDraft.type, balance });
       else await api.createAsset({ name: assetDraft.name.trim(), type: assetDraft.type, balance });
       closeModal();
-      await loadOverview();
+      await refreshCurrentView();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to save account.');
     } finally {
@@ -433,7 +442,7 @@ export default function App() {
     try {
       await api.deleteAsset(assetDraft.id);
       closeModal();
-      await loadOverview();
+      await refreshCurrentView();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to delete account.');
     } finally {
@@ -455,7 +464,7 @@ export default function App() {
       await api.createIncome({ ...incomeDraft, source: incomeDraft.source.trim(), amount, assetId });
       setIncomeDraft((draft) => ({ ...draft, source: '', amount: '', date: today(), description: '' }));
       closeModal();
-      await loadOverview();
+      await refreshCurrentView();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add income.');
     } finally {
@@ -477,7 +486,7 @@ export default function App() {
       await api.createExpense({ ...expenseDraft, title: expenseDraft.title.trim(), amount, assetId });
       setExpenseDraft((draft) => ({ ...draft, title: '', amount: '', date: today(), description: '' }));
       closeModal();
-      await loadOverview();
+      await refreshCurrentView();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add expense.');
     } finally {
@@ -498,7 +507,7 @@ export default function App() {
       await api.createLoan({ ...loanDraft, debtorName: loanDraft.debtorName.trim(), amount });
       setLoanDraft({ debtorName: '', amount: '', date: today(), description: '' });
       closeModal();
-      await Promise.all([loadOverview(), handleLoadLoans()]);
+      await refreshCurrentView();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add loan.');
     } finally {
@@ -519,7 +528,7 @@ export default function App() {
       await api.createBorrowing({ ...borrowingDraft, lenderName: borrowingDraft.lenderName.trim(), amount });
       setBorrowingDraft({ lenderName: '', amount: '', date: today(), description: '' });
       closeModal();
-      await Promise.all([loadOverview(), handleLoadBorrowings()]);
+      await refreshCurrentView();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to add borrowing.');
     } finally {
@@ -529,14 +538,14 @@ export default function App() {
 
   const settleLoan = async (id: string, currentlySettled: boolean) => {
     setSettlingLoan({ id, action: currentlySettled ? 'reverting' : 'settling' });
-    try { await api.settleLoan(id); await Promise.all([loadOverview(), handleLoadLoans()]); }
+    try { await api.settleLoan(id); await refreshCurrentView(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update loan.'); }
     finally { setSettlingLoan(null); }
   };
 
   const settleBorrowing = async (id: string, currentlySettled: boolean) => {
     setSettlingBorrowing({ id, action: currentlySettled ? 'reverting' : 'paying' });
-    try { await api.settleBorrowing(id); await Promise.all([loadOverview(), handleLoadBorrowings()]); }
+    try { await api.settleBorrowing(id); await refreshCurrentView(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update borrowing.'); }
     finally { setSettlingBorrowing(null); }
   };
@@ -545,7 +554,7 @@ export default function App() {
     if (deletingId) return;
     if (!confirm('Delete this loan?')) return;
     setDeletingId(id);
-    try { await api.deleteLoan(id); await Promise.all([loadOverview(), handleLoadLoans()]); }
+    try { await api.deleteLoan(id); await refreshCurrentView(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete loan.'); }
     finally { setDeletingId(null); }
   };
@@ -554,7 +563,7 @@ export default function App() {
     if (deletingId) return;
     if (!confirm('Delete this borrowing?')) return;
     setDeletingId(id);
-    try { await api.deleteBorrowing(id); await Promise.all([loadOverview(), handleLoadBorrowings()]); }
+    try { await api.deleteBorrowing(id); await refreshCurrentView(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete borrowing.'); }
     finally { setDeletingId(null); }
   };
@@ -566,8 +575,7 @@ export default function App() {
     try {
       if (kind === 'credit') await api.deleteIncome(id);
       else await api.deleteExpense(id);
-      await loadOverview();
-      if (page === 'insights' && insightMode === 'history') await handleLoadHistory();
+      await refreshCurrentView();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to delete transaction.');
     } finally {
@@ -579,7 +587,7 @@ export default function App() {
     if (deletingId) return;
     if (!confirm('Delete this expense entry?')) return;
     setDeletingId(id);
-    try { await api.deleteExpense(id); await Promise.all([loadOverview(), handleLoadHistory()]); }
+    try { await api.deleteExpense(id); await refreshCurrentView(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to delete expense.'); }
     finally { setDeletingId(null); }
   };
@@ -812,7 +820,7 @@ export default function App() {
 
         {page === 'dashboard' && (
           <>
-            <PageHeader eyebrow="Financial overview" title={`${greeting()}, ${currentUser.name.split(' ')[0]}`} description="A single, focused view of the money you have, owe, and are moving this month." actions={<><button className="icon-button" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button><button className="button button-secondary" type="button" onClick={() => void loadOverview()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} />Refresh</button></>} />
+            <PageHeader eyebrow="Financial overview" title={`${greeting()}, ${currentUser.name.split(' ')[0]}`} description="A single, focused view of the money you have, owe, and are moving this month." actions={<><button className="icon-button" type="button" onClick={toggleBalances} aria-label={showBalances ? 'Hide balances' : 'Show balances'}>{showBalances ? <EyeOff size={18} /> : <Eye size={18} />}</button><button className="button button-secondary" type="button" onClick={() => void refreshCurrentView()} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} />Refresh</button></>} />
 
             <section className="balance-hero">
               <div className="balance-hero-copy"><span className="hero-label">Estimated net worth</span><strong>{formatMoney(netWorth, showBalances)}</strong><p><span className="positive-dot" /> Updated from your accounts and outstanding debt</p></div>
