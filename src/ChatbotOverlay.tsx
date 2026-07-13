@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Minus, Send, MessageSquare, Copy, Check } from 'lucide-react';
+import { X, Minus, Send, MessageSquare, Copy, Check, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -75,6 +75,27 @@ export default function ChatbotOverlay() {
     navigator.clipboard.writeText(text);
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  const handleClearChat = async () => {
+    if (!window.confirm('Are you sure you want to clear your chat history?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+      
+      const response = await fetch(`${API_BASE_URL}/ai/chat`, {
+        method: 'DELETE',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      if (!response.ok) throw new Error('Failed to clear chat');
+      setMessages([]);
+    } catch (error) {
+      console.error(error);
+      alert('Failed to clear chat history');
+    }
   };
 
   const handleSend = async (query: string = input) => {
@@ -201,6 +222,9 @@ export default function ChatbotOverlay() {
       <div className="chatbot-header">
         <h3 className="chatbot-header-title">Xpense AI Assistant</h3>
         <div className="chatbot-header-actions">
+          {messages.length > 0 && (
+            <button onClick={handleClearChat} aria-label="Clear chat" title="Clear chat"><Trash2 size={16} /></button>
+          )}
           <button onClick={() => setIsCollapsed(true)} aria-label="Collapse chat"><Minus size={18} /></button>
           <button onClick={() => setIsOpen(false)} aria-label="Close chat"><X size={18} /></button>
         </div>
