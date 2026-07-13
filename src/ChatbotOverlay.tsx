@@ -203,18 +203,26 @@ export default function ChatbotOverlay() {
       </button>
 
       <div className={`chatbot-wrapper ${!isOpen ? 'collapsed' : ''}`}>
-        <img src="/peeking_robot.jpg" alt="Robot Mascot" className="peeking-robot-mascot" />
       <div className="chatbot-overlay">
         <span className="sparkle sparkle-1">✨</span>
       <span className="sparkle sparkle-2">✨</span>
       <span className="sparkle sparkle-3">✨</span>
 
       <div className="chatbot-header">
-        <h3 className="chatbot-header-title">Xpense AI Assistant</h3>
+        <div className="chatbot-header-title-container">
+          <img src="/robot_avatar.jpg" alt="AI Avatar" className="chatbot-header-logo" />
+          <h3 className="chatbot-header-title">Xpense AI Assistant</h3>
+        </div>
         <div className="chatbot-header-actions">
-          {messages.length > 0 && (
-            <button onClick={handleClearChat} aria-label="Clear chat" title="Clear chat"><Trash2 size={16} /></button>
-          )}
+          <button 
+            onClick={handleClearChat} 
+            disabled={messages.length === 0}
+            className={messages.length === 0 ? 'action-disabled' : ''}
+            aria-label="Clear chat" 
+            title="Clear chat"
+          >
+            <Trash2 size={16} />
+          </button>
           <button onClick={() => setIsOpen(false)} aria-label="Close chat"><Minus size={18} /></button>
         </div>
       </div>
