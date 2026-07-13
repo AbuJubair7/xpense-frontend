@@ -48,6 +48,7 @@ import {
 } from 'recharts';
 import { api, setAuthToken } from './api';
 import { useStore } from './store';
+import ChatbotOverlay from './ChatbotOverlay';
 import type { ActivityItem, ActivityResponse, Asset, Borrowing, Loan, PaginationMeta } from './api';
 
 
@@ -1017,6 +1018,8 @@ export default function App() {
       {modal === 'loan' && <ModalShell title="Record money lent" subtitle="Keep the person, amount, and date ready for follow-up." onClose={closeModal}><form className="modal-form" onSubmit={handleLoan}><label>Who owes you?<input value={loanDraft.debtorName} onChange={(event) => setLoanDraft((draft) => ({ ...draft, debtorName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={loanDraft.amount} onChange={(event) => setLoanDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date lent<input type="date" value={loanDraft.date} onChange={(event) => setLoanDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={loanDraft.description} onChange={(event) => setLoanDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Recording</> : 'Record loan'}</button></div></footer></form></ModalShell>}
 
       {modal === 'borrowing' && <ModalShell title="Record money borrowed" subtitle="Keep repayment obligations visible and organised." onClose={closeModal}><form className="modal-form" onSubmit={handleBorrowing}><label>Who lent you money?<input value={borrowingDraft.lenderName} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, lenderName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={borrowingDraft.amount} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date borrowed<input type="date" value={borrowingDraft.date} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={borrowingDraft.description} onChange={(event) => setBorrowingDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Recording</> : 'Record borrowing'}</button></div></footer></form></ModalShell>}
+      
+      <ChatbotOverlay />
     </div>
   );
 }
