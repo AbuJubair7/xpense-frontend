@@ -65,7 +65,13 @@
   cursor: pointer;
   z-index: 9998;
   border: none;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.3s, box-shadow 0.2s;
+}
+
+.chatbot-fab.hidden {
+  transform: scale(0);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .chatbot-fab:hover {

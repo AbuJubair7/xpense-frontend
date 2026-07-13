@@ -55,7 +55,6 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
 export default function ChatbotOverlay() {
   const { currentUser } = useStore();
   const [isOpen, setIsOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -66,10 +65,10 @@ export default function ChatbotOverlay() {
   const userName = currentUser?.name?.split(' ')[0] || 'Abu';
   
   useEffect(() => {
-    if (isOpen && !isCollapsed) {
+    if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isOpen, isCollapsed, isLoading]);
+  }, [messages, isOpen, isLoading]);
 
   const handleCopyMessage = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
@@ -197,25 +196,14 @@ export default function ChatbotOverlay() {
     return { displayContent, suggestion };
   };
 
-  if (!isOpen) {
-    return (
-      <button className="chatbot-fab" onClick={() => { setIsOpen(true); setIsCollapsed(false); }} aria-label="Open AI Assistant">
-        <MessageSquare size={24} />
-      </button>
-    );
-  }
-
-  if (isCollapsed) {
-    return (
-      <button className="chatbot-fab" onClick={() => { setIsCollapsed(false); setIsOpen(true); }} aria-label="Open AI Assistant">
-        <MessageSquare size={24} />
-      </button>
-    );
-  }
-
   return (
-    <div className={`chatbot-wrapper ${isCollapsed ? 'collapsed' : ''}`}>
-      <img src="/peeking_robot.jpg" alt="Robot Mascot" className="peeking-robot-mascot" />
+    <>
+      <button className={`chatbot-fab ${isOpen ? 'hidden' : ''}`} onClick={() => setIsOpen(true)} aria-label="Open AI Assistant">
+        <MessageSquare size={24} />
+      </button>
+
+      <div className={`chatbot-wrapper ${!isOpen ? 'collapsed' : ''}`}>
+        <img src="/peeking_robot.jpg" alt="Robot Mascot" className="peeking-robot-mascot" />
       <div className="chatbot-overlay">
         <span className="sparkle sparkle-1">✨</span>
       <span className="sparkle sparkle-2">✨</span>
@@ -326,6 +314,7 @@ export default function ChatbotOverlay() {
         </form>
       </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
