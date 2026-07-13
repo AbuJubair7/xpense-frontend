@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Minus, Send, MessageSquare, Copy, Check, Trash2 } from 'lucide-react';
+import { Minus, Send, MessageSquare, Copy, Check, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -214,8 +214,10 @@ export default function ChatbotOverlay() {
   }
 
   return (
-    <div className={`chatbot-overlay ${isCollapsed ? 'collapsed' : ''}`}>
-      <span className="sparkle sparkle-1">✨</span>
+    <div className={`chatbot-wrapper ${isCollapsed ? 'collapsed' : ''}`}>
+      <img src="/peeking_robot.jpg" alt="Robot Mascot" className="peeking-robot-mascot" />
+      <div className="chatbot-overlay">
+        <span className="sparkle sparkle-1">✨</span>
       <span className="sparkle sparkle-2">✨</span>
       <span className="sparkle sparkle-3">✨</span>
 
@@ -225,8 +227,7 @@ export default function ChatbotOverlay() {
           {messages.length > 0 && (
             <button onClick={handleClearChat} aria-label="Clear chat" title="Clear chat"><Trash2 size={16} /></button>
           )}
-          <button onClick={() => setIsCollapsed(true)} aria-label="Collapse chat"><Minus size={18} /></button>
-          <button onClick={() => setIsOpen(false)} aria-label="Close chat"><X size={18} /></button>
+          <button onClick={() => setIsOpen(false)} aria-label="Close chat"><Minus size={18} /></button>
         </div>
       </div>
 
@@ -323,6 +324,7 @@ export default function ChatbotOverlay() {
             <Send size={16} />
           </button>
         </form>
+      </div>
       </div>
     </div>
   );
