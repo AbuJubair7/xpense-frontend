@@ -147,8 +147,25 @@ export default function ChatbotOverlay() {
     let displayContent = content.replace(/(?:\*\*|)?(?:Suggestion|Follow-up)(?:\*\*|)?:\s*(?=<suggestion>)/gi, '');
     displayContent = displayContent.replace(/<suggestion>.*?(<\/suggestion>)?/gis, '').trim();
     displayContent = displayContent.replace(/<\/suggestion>/gi, '').trim();
-    const match = content.match(/<suggestion>(.*?)<\/suggestion>/is);
-    const suggestion = match ? match[1].trim() : null;
+    
+    let match = content.match(/<suggestion>(.*?)<\/suggestion>/is);
+    let suggestion = match ? match[1].trim() : null;
+
+    // Fallback: If the AI completely ignored the XML tags, check if the very last sentence is a question.
+    if (!suggestion) {
+      const trimmedContent = displayContent.trim();
+      if (trimmedContent.endsWith('?')) {
+        // Extract the last sentence using standard punctuation boundaries
+        const sentences = trimmedContent.match(/[^.!?]+[.!?]+/g) || [trimmedContent];
+        let lastSentence = sentences[sentences.length - 1].trim();
+        
+        if (lastSentence.endsWith('?')) {
+          suggestion = lastSentence.replace(/(?:\*\*|)?(?:Suggestion|Follow-up)(?:\*\*|)?:\s*/gi, '');
+          displayContent = displayContent.slice(0, displayContent.lastIndexOf(sentences[sentences.length - 1])).trim();
+        }
+      }
+    }
+
     return { displayContent, suggestion };
   };
 
