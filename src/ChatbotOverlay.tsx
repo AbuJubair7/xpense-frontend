@@ -143,7 +143,9 @@ export default function ChatbotOverlay() {
   };
 
   const parseMessageContent = (content: string) => {
-    let displayContent = content.replace(/<suggestion>.*?(<\/suggestion>)?/gis, '').trim();
+    // Aggressively strip any prefix labels like "Suggestion:" or "**Follow-up:**" just before the tag
+    let displayContent = content.replace(/(?:\*\*|)?(?:Suggestion|Follow-up)(?:\*\*|)?:\s*(?=<suggestion>)/gi, '');
+    displayContent = displayContent.replace(/<suggestion>.*?(<\/suggestion>)?/gis, '').trim();
     displayContent = displayContent.replace(/<\/suggestion>/gi, '').trim();
     const match = content.match(/<suggestion>(.*?)<\/suggestion>/is);
     const suggestion = match ? match[1].trim() : null;
