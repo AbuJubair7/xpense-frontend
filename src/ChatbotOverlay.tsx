@@ -146,20 +146,19 @@ export default function ChatbotOverlay() {
     let displayContent = content;
     let suggestion = null;
 
-    // Check for the strict delimiter
-    if (content.includes('---SUGGESTION---')) {
-      const parts = content.split('---SUGGESTION---');
-      displayContent = parts[0].trim();
+    // Use a flexible regex to catch the delimiter since AI models often alter formatting (e.g., "SUGGESTION:", "***SUGGESTION***", "---SUGGESTION---")
+    const delimiterMatch = content.match(/(?:\n|^)[-*]*\s*SUGGESTION\s*[-*:]*\s*([\s\S]*)$/i);
+
+    if (delimiterMatch) {
+      suggestion = delimiterMatch[1].trim();
+      // Remove everything from the delimiter onwards
+      displayContent = content.slice(0, delimiterMatch.index).trim();
       
-      // Extract everything after the delimiter as the suggestion
-      if (parts.length > 1 && parts[1].trim()) {
-        suggestion = parts[1].trim();
-        // Clean up any stray markdown formatting or prefixes the AI might add
-        suggestion = suggestion.replace(/(?:\*\*|)?(?:Suggestion|Follow-up|Question)(?:\*\*|)?:\s*/gi, '').trim();
-      }
+      // Clean up any stray markdown formatting the AI might add to the suggestion itself
+      suggestion = suggestion.replace(/(?:\*\*|)?(?:Follow-up|Question)(?:\*\*|)?:\s*/gi, '').trim();
     } else {
-      // Hide the delimiter while it is partially streaming
-      displayContent = content.replace(/---[A-Z]*$/, '').trim();
+      // Hide the delimiter while it is partially streaming (e.g., "---SUG" or "SUGGESTI")
+      displayContent = content.replace(/(?:\n|^)[-*]*\s*S[UGESTON]*$/i, '').trim();
       
       // Fallback: If the AI completely ignored the delimiter, check if the very last sentence is a question.
       const trimmedContent = displayContent.trim();
