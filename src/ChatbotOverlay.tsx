@@ -143,24 +143,32 @@ export default function ChatbotOverlay() {
   };
 
   const parseMessageContent = (content: string) => {
-    // Aggressively strip any prefix labels like "Suggestion:" or "**Follow-up:**" just before the tag
-    let displayContent = content.replace(/(?:\*\*|)?(?:Suggestion|Follow-up)(?:\*\*|)?:\s*(?=<suggestion>)/gi, '');
-    displayContent = displayContent.replace(/<suggestion>.*?(<\/suggestion>)?/gis, '').trim();
-    displayContent = displayContent.replace(/<\/suggestion>/gi, '').trim();
-    
-    let match = content.match(/<suggestion>(.*?)<\/suggestion>/is);
-    let suggestion = match ? match[1].trim() : null;
+    let displayContent = content;
+    let suggestion = null;
 
-    // Fallback: If the AI completely ignored the XML tags, check if the very last sentence is a question.
-    if (!suggestion) {
+    // Check for the strict delimiter
+    if (content.includes('---SUGGESTION---')) {
+      const parts = content.split('---SUGGESTION---');
+      displayContent = parts[0].trim();
+      
+      // Extract everything after the delimiter as the suggestion
+      if (parts.length > 1 && parts[1].trim()) {
+        suggestion = parts[1].trim();
+        // Clean up any stray markdown formatting or prefixes the AI might add
+        suggestion = suggestion.replace(/(?:\*\*|)?(?:Suggestion|Follow-up|Question)(?:\*\*|)?:\s*/gi, '').trim();
+      }
+    } else {
+      // Hide the delimiter while it is partially streaming
+      displayContent = content.replace(/---[A-Z]*$/, '').trim();
+      
+      // Fallback: If the AI completely ignored the delimiter, check if the very last sentence is a question.
       const trimmedContent = displayContent.trim();
       if (trimmedContent.endsWith('?')) {
-        // Extract the last sentence using standard punctuation boundaries
         const sentences = trimmedContent.match(/[^.!?]+[.!?]+/g) || [trimmedContent];
         let lastSentence = sentences[sentences.length - 1].trim();
         
         if (lastSentence.endsWith('?')) {
-          suggestion = lastSentence.replace(/(?:\*\*|)?(?:Suggestion|Follow-up)(?:\*\*|)?:\s*/gi, '');
+          suggestion = lastSentence.replace(/(?:\*\*|)?(?:Suggestion|Follow-up|Question)(?:\*\*|)?:\s*/gi, '');
           displayContent = displayContent.slice(0, displayContent.lastIndexOf(sentences[sentences.length - 1])).trim();
         }
       }
