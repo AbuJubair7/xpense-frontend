@@ -143,8 +143,9 @@ export default function ChatbotOverlay() {
   };
 
   const parseMessageContent = (content: string) => {
-    let displayContent = content.replace(/<suggestion>.*?(<\/suggestion>)?/gs, '').trim();
-    const match = content.match(/<suggestion>(.*?)<\/suggestion>/s);
+    let displayContent = content.replace(/<suggestion>.*?(<\/suggestion>)?/gis, '').trim();
+    displayContent = displayContent.replace(/<\/suggestion>/gi, '').trim();
+    const match = content.match(/<suggestion>(.*?)<\/suggestion>/is);
     const suggestion = match ? match[1].trim() : null;
     return { displayContent, suggestion };
   };
