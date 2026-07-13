@@ -173,6 +173,39 @@
   transform: translateY(-1px);
 }
 
+/* Dynamic Suggestions */
+.message-row-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dynamic-suggestion-wrapper {
+  display: flex;
+  justify-content: flex-start;
+  margin-left: 36px;
+  margin-top: 2px;
+}
+
+.dynamic-suggestion-btn {
+  background-color: #ffffff;
+  border: 1px solid #0e7a3c;
+  color: #0e7a3c;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.dynamic-suggestion-btn:hover {
+  background-color: #e2f0e8;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+}
+
 /* Input Area */
 .chatbot-input-container {
   padding: 16px;
@@ -248,4 +281,266 @@
 .text-highlight-green {
   color: #0e7a3c;
   font-weight: 700;
+}
+
+/* =========================================================
+   NEW CHATBOT STYLES (MARKDOWN, UI UPGRADES, EMPTY STATE)
+   ========================================================= */
+
+/* Message Wrapper & Copy Button */
+.message-bubble-wrapper {
+  position: relative;
+  max-width: 80%;
+}
+
+.message-copy-action {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  background: white;
+  border: 1px solid #eaeaea;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  z-index: 10;
+}
+
+.message-row:hover .message-copy-action {
+  opacity: 1;
+}
+
+.message-copy-action:hover {
+  transform: scale(1.1);
+  color: #0c4d25;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  height: 100%;
+}
+
+.empty-state-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  animation: wave 2s infinite;
+  transform-origin: 70% 70%;
+}
+
+@keyframes wave {
+  0% { transform: rotate(0deg); }
+  10% { transform: rotate(14deg); }
+  20% { transform: rotate(-8deg); }
+  30% { transform: rotate(14deg); }
+  40% { transform: rotate(-4deg); }
+  50% { transform: rotate(10deg); }
+  60% { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.empty-state-title {
+  font-size: 20px;
+  color: #1a4f32;
+  margin: 0 0 8px 0;
+}
+
+.empty-state-subtitle {
+  font-size: 14px;
+  color: #666;
+  margin: 0 0 24px 0;
+}
+
+.empty-state-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.empty-state-suggestions button {
+  background: #ffffff;
+  border: 1px solid #e2f0e8;
+  color: #0c4d25;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+}
+
+.empty-state-suggestions button:hover {
+  background: #e2f0e8;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+/* Markdown Body Styles */
+.markdown-body {
+  line-height: 1.7;
+}
+
+.markdown-body p {
+  margin: 0 0 12px 0;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  color: #1a4f32;
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.markdown-body h1 { font-size: 1.3em; }
+.markdown-body h2 { font-size: 1.15em; }
+.markdown-body h3 { font-size: 1.05em; }
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 12px 0;
+  padding-left: 24px;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-body th {
+  background-color: rgba(0, 0, 0, 0.03);
+  font-weight: 600;
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid #1a4f32;
+  margin: 12px 0;
+  padding-left: 12px;
+  color: #555;
+  font-style: italic;
+}
+
+.markdown-body a {
+  color: #0e7a3c;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+/* Code Block Styles */
+.code-block-container {
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #2d2d2d;
+  padding: 6px 12px;
+  border-bottom: 1px solid #444;
+}
+
+.code-language {
+  color: #a0a0a0;
+  font-size: 12px;
+  font-family: monospace;
+  text-transform: lowercase;
+}
+
+.code-copy-btn {
+  background: transparent;
+  border: none;
+  color: #a0a0a0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: color 0.2s;
+  padding: 0;
+}
+
+.code-copy-btn:hover {
+  color: #fff;
+}
+
+.markdown-body code {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+  color: #0c4d25;
+}
+
+.code-block-container code {
+  background-color: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* Animated Typing Indicator (3 dots) */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 4px;
+}
+
+.typing-indicator span {
+  width: 6px;
+  height: 6px;
+  background-color: #0c4d25;
+  border-radius: 50%;
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+.typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes typing {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
 }

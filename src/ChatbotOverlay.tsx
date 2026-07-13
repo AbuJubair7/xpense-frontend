@@ -1,5 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Minus, Send, MessageSquare } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, Minus, Send, MessageSquare, Copy, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useStore } from './store';
 import './ChatbotOverlay.css';
 
@@ -9,28 +13,50 @@ interface ChatMessage {
   isError?: boolean;
 }
 
-function parseMessage(text: string) {
-  if (!text) return null;
-  return text.split('\n').map((line, i) => {
-    const parts = line.split(/(\*\*.*?\*\*)/g);
+const CodeBlock = ({ inline, className, children, ...props }: any) => {
+  const match = /language-(\w+)/.exec(className || '');
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!inline && match) {
     return (
-      <React.Fragment key={i}>
-        {parts.map((part, j) => {
-          if (part.startsWith('**') && part.endsWith('**')) {
-            return <strong key={j} className="text-highlight-green">{part.slice(2, -2)}</strong>;
-          }
-          return part;
-        })}
-        {i < text.split('\n').length - 1 && <br />}
-      </React.Fragment>
+      <div className="code-block-container">
+        <div className="code-block-header">
+          <span className="code-language">{match[1]}</span>
+          <button className="code-copy-btn" onClick={handleCopy} aria-label="Copy code">
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            <span>{copied ? 'Copied!' : 'Copy'}</span>
+          </button>
+        </div>
+        <SyntaxHighlighter
+          style={vscDarkPlus as any}
+          language={match[1]}
+          PreTag="div"
+          customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, fontSize: '13px' }}
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </div>
     );
-  });
-}
+  }
+  return (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  );
+};
 
 export default function ChatbotOverlay() {
   const { currentUser } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -39,23 +65,17 @@ export default function ChatbotOverlay() {
 
   const userName = currentUser?.name?.split(' ')[0] || 'Abu';
   
-  // Initialize welcome message when opened for the first time
-  useEffect(() => {
-    if (isOpen && messages.length === 0) {
-      setMessages([
-        {
-          role: 'assistant',
-          content: `Hello ${userName}! I can help you analyze your spending or check your balances. What would you like to do?`,
-        },
-      ]);
-    }
-  }, [isOpen, messages.length, userName]);
-
   useEffect(() => {
     if (isOpen && !isCollapsed) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isOpen, isCollapsed]);
+  }, [messages, isOpen, isCollapsed, isLoading]);
+
+  const handleCopyMessage = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
 
   const handleSend = async (query: string = input) => {
     if (!query.trim() || isLoading) return;
@@ -65,7 +85,6 @@ export default function ChatbotOverlay() {
     setInput('');
     setIsLoading(true);
 
-    // Add empty assistant message that will be populated via stream
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
 
     try {
@@ -110,7 +129,6 @@ export default function ChatbotOverlay() {
     } catch (error: any) {
       setMessages((prev) => {
         const updated = [...prev];
-        // Replace the empty/partial assistant message with the error message
         const lastIdx = updated.length - 1;
         updated[lastIdx] = {
           role: 'assistant',
@@ -124,6 +142,13 @@ export default function ChatbotOverlay() {
     }
   };
 
+  const parseMessageContent = (content: string) => {
+    let displayContent = content.replace(/<suggestion>.*?(<\/suggestion>)?/g, '').trim();
+    const match = content.match(/<suggestion>(.*?)<\/suggestion>/);
+    const suggestion = match ? match[1].trim() : null;
+    return { displayContent, suggestion };
+  };
+
   if (!isOpen) {
     return (
       <button className="chatbot-fab" onClick={() => { setIsOpen(true); setIsCollapsed(false); }} aria-label="Open AI Assistant">
@@ -132,13 +157,6 @@ export default function ChatbotOverlay() {
     );
   }
 
-  // If collapsed, we show the FAB but we could also do something else. 
-  // Let's just make it disappear entirely using CSS and rely on the state for simplicity, 
-  // but to show the fab again we need isOpen=false.
-  // Wait, the prompt says '-' for collapse. If collapsed, it should hide the window, 
-  // but how to bring it back? If we use CSS `transform: scale(0)` it hides but taking space? No, fixed bottom right.
-  // We can just set isOpen(false) for collapse, or show FAB if collapsed.
-  // I will just make the FAB show if !isOpen OR isCollapsed.
   if (isCollapsed) {
     return (
       <button className="chatbot-fab" onClick={() => { setIsCollapsed(false); setIsOpen(true); }} aria-label="Open AI Assistant">
@@ -149,7 +167,6 @@ export default function ChatbotOverlay() {
 
   return (
     <div className={`chatbot-overlay ${isCollapsed ? 'collapsed' : ''}`}>
-      {/* Decorative Sparkles */}
       <span className="sparkle sparkle-1">✨</span>
       <span className="sparkle sparkle-2">✨</span>
       <span className="sparkle sparkle-3">✨</span>
@@ -163,24 +180,78 @@ export default function ChatbotOverlay() {
       </div>
 
       <div className="chatbot-messages">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`message-row ${msg.role} ${msg.isError ? 'error' : ''}`}>
-            {msg.role === 'assistant' && (
-              <img src="/robot_avatar.jpg" alt="AI Avatar" className="message-avatar" />
-            )}
-            <div className="message-bubble">
-              {parseMessage(msg.content) || (isLoading && idx === messages.length - 1 ? 'Typing...' : '')}
+        {messages.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">👋</div>
+            <h4 className="empty-state-title">Hi {userName}!</h4>
+            <p className="empty-state-subtitle">What can I help with today?</p>
+            <div className="empty-state-suggestions">
+              <button onClick={() => handleSend('Show my financial summary')}>📊 Financial Summary</button>
+              <button onClick={() => handleSend('What are my recent expenses?')}>💸 Recent Expenses</button>
+              <button onClick={() => handleSend('Who owes me money?')}>🤝 Outstanding Loans</button>
+              <button onClick={() => handleSend('How is my budget looking this month?')}>📅 Monthly Budget</button>
             </div>
           </div>
-        ))}
-        
-        {/* Suggestion Chips only show after the first welcome message and before user replies */}
-        {messages.length === 1 && !isLoading && (
-          <div className="chatbot-suggestions">
-            <button className="suggestion-chip" onClick={() => handleSend('Show financial summary')}>Show financial summary</button>
-            <button className="suggestion-chip" onClick={() => handleSend('Recent expenses')}>Recent expenses</button>
-            <button className="suggestion-chip" onClick={() => handleSend('Who owes me money?')}>Who owes me money?</button>
-          </div>
+        ) : (
+          messages.map((msg, idx) => {
+            const { displayContent, suggestion } = parseMessageContent(msg.content);
+            const isLatestAiMessage = msg.role === 'assistant' && idx === messages.length - 1;
+            
+            return (
+              <div key={idx} className={`message-row-container ${msg.role}`}>
+                <div className={`message-row ${msg.role} ${msg.isError ? 'error' : ''}`}>
+                  {msg.role === 'assistant' && (
+                    <img src="/robot_avatar.jpg" alt="AI Avatar" className="message-avatar" />
+                  )}
+                  <div className="message-bubble-wrapper">
+                    {msg.role === 'assistant' && (
+                      <button 
+                        className="message-copy-action"
+                        onClick={() => handleCopyMessage(displayContent, idx)}
+                        aria-label="Copy message"
+                        title="Copy message"
+                      >
+                        {copiedIndex === idx ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                    )}
+                    <div className={`message-bubble ${msg.role === 'assistant' ? 'markdown-body' : ''}`}>
+                      {msg.role === 'assistant' ? (
+                        <>
+                          {displayContent || (msg.content && !suggestion) ? (
+                            <ReactMarkdown 
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                code: CodeBlock,
+                                a: ({node, ...props}) => <a target="_blank" rel="noopener noreferrer" {...props} />
+                              }}
+                            >
+                              {displayContent + (isLoading && isLatestAiMessage ? ' ▋' : '')}
+                            </ReactMarkdown>
+                          ) : isLoading && isLatestAiMessage ? (
+                            <div className="typing-indicator">
+                              <span></span><span></span><span></span>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        msg.content
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {suggestion && !isLoading && isLatestAiMessage && (
+                  <div className="dynamic-suggestion-wrapper">
+                    <button 
+                      className="dynamic-suggestion-btn" 
+                      onClick={() => handleSend(suggestion)}
+                    >
+                      ✨ {suggestion}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </div>
