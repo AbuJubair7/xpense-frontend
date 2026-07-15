@@ -60,15 +60,90 @@ export default function ChatbotOverlay() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Pagination & Loading States
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const userName = currentUser?.name?.split(' ')[0] || 'Abu';
   
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  };
+
+  const fetchChatHistory = async (limit = 20, skip = 0) => {
+    try {
+      const token = localStorage.getItem('token');
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+      const response = await fetch(`${API_BASE_URL}/ai/chat?limit=${limit}&skip=${skip}`, {
+        method: 'GET',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!response.ok) throw new Error('Failed to fetch chat history');
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching chat history:', error);
+      return [];
+    }
+  };
+
+  // Initial load of the last 20 messages on Chatbox open
   useEffect(() => {
     if (isOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const loadInitialHistory = async () => {
+        setIsLoadingHistory(true);
+        const history = await fetchChatHistory(20, 0);
+        const mapped = history.map((msg: any) => ({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.content,
+        }));
+        setMessages(mapped);
+        setHasMore(history.length === 20);
+        setIsLoadingHistory(false);
+        setTimeout(() => {
+          scrollToBottom('auto');
+        }, 50);
+      };
+      loadInitialHistory();
     }
-  }, [messages, isOpen, isLoading]);
+  }, [isOpen]);
+
+  // Handle scroll-up to trigger history pagination (Infinite Scroll)
+  const handleScroll = async () => {
+    const container = messagesContainerRef.current;
+    if (!container || isLoadingHistory || !hasMore) return;
+
+    if (container.scrollTop === 0) {
+      setIsLoadingHistory(true);
+      const previousScrollHeight = container.scrollHeight;
+      
+      const history = await fetchChatHistory(20, messages.length);
+      if (history.length === 0) {
+        setHasMore(false);
+        setIsLoadingHistory(false);
+        return;
+      }
+      
+      const mapped = history.map((msg: any) => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content,
+      }));
+
+      setMessages((prev) => [...mapped, ...prev]);
+      setHasMore(history.length === 20);
+      setIsLoadingHistory(false);
+
+      // Maintain scroll position after content prepended
+      setTimeout(() => {
+        container.scrollTop = container.scrollHeight - previousScrollHeight;
+      }, 0);
+    }
+  };
 
   const handleCopyMessage = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
@@ -91,6 +166,7 @@ export default function ChatbotOverlay() {
 
       if (!response.ok) throw new Error('Failed to clear chat');
       setMessages([]);
+      setHasMore(false);
     } catch (error) {
       console.error(error);
       alert('Failed to clear chat history');
@@ -104,6 +180,8 @@ export default function ChatbotOverlay() {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+
+    setTimeout(() => scrollToBottom('smooth'), 50);
 
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
 
@@ -144,6 +222,7 @@ export default function ChatbotOverlay() {
             };
             return updated;
           });
+          scrollToBottom('auto');
         }
       }
     } catch (error: any) {
@@ -166,21 +245,15 @@ export default function ChatbotOverlay() {
     let displayContent = content;
     let suggestion = null;
 
-    // Use a flexible regex to catch the delimiter since AI models often alter formatting (e.g., "SUGGESTION:", "***SUGGESTION***", "---SUGGESTION---")
     const delimiterMatch = content.match(/(?:\n|^)[-*]*\s*SUGGESTION\s*[-*:]*\s*([\s\S]*)$/i);
 
     if (delimiterMatch) {
       suggestion = delimiterMatch[1].trim();
-      // Remove everything from the delimiter onwards
       displayContent = content.slice(0, delimiterMatch.index).trim();
-      
-      // Clean up any stray markdown formatting the AI might add to the suggestion itself
       suggestion = suggestion.replace(/(?:\*\*|)?(?:Follow-up|Question)(?:\*\*|)?:\s*/gi, '').trim();
     } else {
-      // Hide the delimiter while it is partially streaming (e.g., "---SUG" or "SUGGESTI")
       displayContent = content.replace(/(?:\n|^)[-*]*\s*S[UGESTON]*$/i, '').trim();
       
-      // Fallback: If the AI completely ignored the delimiter, check if the very last sentence is a question.
       const trimmedContent = displayContent.trim();
       if (trimmedContent.endsWith('?')) {
         const sentences = trimmedContent.match(/[^.!?]+[.!?]+/g) || [trimmedContent];
@@ -227,8 +300,18 @@ export default function ChatbotOverlay() {
         </div>
       </div>
 
-      <div className="chatbot-messages">
-        {messages.length === 0 ? (
+      <div 
+        className="chatbot-messages" 
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+      >
+        {hasMore && messages.length > 0 && (
+          <div className="chatbot-history-loader" style={{ textAlign: 'center', padding: '10px', fontSize: '12px', color: '#888' }}>
+            {isLoadingHistory ? 'Loading older messages...' : 'Scroll up to load older messages'}
+          </div>
+        )}
+
+        {messages.length === 0 && !isLoadingHistory ? (
           <div className="empty-state">
             <div className="empty-state-icon">👋</div>
             <h4 className="empty-state-title">Hi {userName}!</h4>
