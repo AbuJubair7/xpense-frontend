@@ -92,6 +92,16 @@ function formatDate(value: string) {
     : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatDateTime(createdAt: string | undefined, fallbackDate: string) {
+  if (createdAt) {
+    const date = new Date(createdAt);
+    if (!Number.isNaN(date.valueOf())) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+  }
+  return formatDate(fallbackDate);
+}
+
 function formatTick(period: string, mode: string) {
   if (mode === 'day') return new Date(`${period}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   if (mode === 'month') {
@@ -843,7 +853,7 @@ export default function App() {
                 {assets.length ? <div className="account-summary-list">{assets.slice(0, 4).map((asset) => <div className="account-summary-row" key={asset.id}><div className={`account-icon account-icon-${asset.type}`}><AssetIcon type={asset.type} /></div><div><strong>{asset.name}</strong><span>{assetLabel(asset.type)}</span></div><strong className="account-summary-balance">{formatMoney(Number(asset.balance), showBalances)}</strong></div>)}</div> : <EmptyState icon={<Landmark size={22} />} title="Start with an account" copy="Add a bank account, wallet, or cash balance to ground your dashboard." action={<button className="button button-primary button-small" type="button" onClick={openNewAsset}><Plus size={15} />Add account</button>} />}
               </article>
               <article className="panel cash-flow-panel"><div className="panel-header"><div><p className="panel-kicker">This month</p><h2>Cash flow</h2></div><CalendarDays size={19} /></div><div className="cash-flow-total"><span>Net movement</span><strong className={periodIncome - periodExpenses >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(periodIncome - periodExpenses, showBalances)}</strong></div><div className="flow-row"><span><i className="flow-dot flow-dot-income" />Income</span><strong>{formatMoney(periodIncome, showBalances)}</strong></div><div className="flow-row"><span><i className="flow-dot flow-dot-expense" />Expenses</span><strong>{formatMoney(periodExpenses, showBalances)}</strong></div></article>
-              <article className="panel span-two"><div className="panel-header"><div><p className="panel-kicker">Latest movement</p><h2>Recent activity</h2></div><button className="text-button" type="button" onClick={() => goToPage('activity')}>All activity <ChevronRight size={16} /></button></div>{recentActivity.length ? <div className="activity-list">{recentActivity.map((item) => <div className="activity-row" key={`${item.kind}-${item.id}`}><div className={`transaction-icon ${item.kind}`} aria-hidden="true">{item.kind === 'credit' ? <ArrowUpRight size={17} /> : <ArrowDownRight size={17} />}</div><div className="activity-copy"><strong>{item.title}</strong><span>{item.assetName} · {formatDate(item.date)}</span></div><strong className={item.kind === 'credit' ? 'amount-positive' : 'amount-negative'}>{item.kind === 'credit' ? '+' : '−'}{formatMoney(item.amount, showBalances)}</strong></div>)}</div> : <EmptyState icon={<Receipt size={22} />} title="No activity yet" copy="Income and expense records will appear here as you add them." action={<button className="button button-secondary button-small" type="button" onClick={() => setModal('expense')}><Plus size={15} />Add an entry</button>} />}</article>
+              <article className="panel span-two"><div className="panel-header"><div><p className="panel-kicker">Latest movement</p><h2>Recent activity</h2></div><button className="text-button" type="button" onClick={() => goToPage('activity')}>All activity <ChevronRight size={16} /></button></div>{recentActivity.length ? <div className="activity-list">{recentActivity.map((item) => <div className="activity-row" key={`${item.kind}-${item.id}`}><div className={`transaction-icon ${item.kind}`} aria-hidden="true">{item.kind === 'credit' ? <ArrowUpRight size={17} /> : <ArrowDownRight size={17} />}</div><div className="activity-copy"><strong>{item.title}</strong><span>{item.assetName} · {formatDateTime(item.createdAt, item.date)}</span></div><strong className={item.kind === 'credit' ? 'amount-positive' : 'amount-negative'}>{item.kind === 'credit' ? '+' : '−'}{formatMoney(item.amount, showBalances)}</strong></div>)}</div> : <EmptyState icon={<Receipt size={22} />} title="No activity yet" copy="Income and expense records will appear here as you add them." action={<button className="button button-secondary button-small" type="button" onClick={() => setModal('expense')}><Plus size={15} />Add an entry</button>} />}</article>
               <article className="panel debt-pulse"><div className="panel-header"><div><p className="panel-kicker">Debt pulse</p><h2>Keep obligations clear</h2></div><CircleDollarSign size={19} /></div><div className="debt-pulse-row"><span>To collect</span><strong>{formatMoney(outstandingLoans, showBalances)}</strong></div><div className="debt-pulse-row"><span>To repay</span><strong>{formatMoney(outstandingBorrowings, showBalances)}</strong></div><button className="button button-secondary button-small button-full" type="button" onClick={() => goToPage('debts')}>Open debt book</button></article>
             </section>
           </>
@@ -896,7 +906,7 @@ export default function App() {
                               {item.assetName}
                             </span>
                           </td>
-                          <td>{formatDate(item.date)}</td>
+                          <td>{formatDateTime(item.createdAt, item.date)}</td>
                           <td className="muted-cell">{item.description || '—'}</td>
                           <td className={`align-right amount-cell ${item.kind === 'credit' ? 'amount-positive' : 'amount-negative'}`}>
                             {item.kind === 'credit' ? '+' : '−'}
