@@ -97,6 +97,7 @@ export interface ActivityItem {
   assetId: string;
   assetName: string;
   assetType: Asset['type'];
+  createdAt?: string;
 }
 
 export interface ActivityResponse {
