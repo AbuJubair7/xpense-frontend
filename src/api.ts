@@ -101,6 +101,16 @@ export interface ActivityItem {
   createdAt?: string;
 }
 
+export interface EditableEntry {
+  id: string;
+  title: string;
+  amount: number;
+  date: string;
+  description?: string;
+  assetId: string;
+  category?: string;
+}
+
 export interface ActivityResponse {
   data: ActivityItem[];
   pagination: PaginationMeta;
