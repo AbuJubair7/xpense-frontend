@@ -92,6 +92,7 @@ export interface ActivityItem {
   kind: 'credit' | 'debit';
   title: string;
   description?: string;
+  category?: string;
   amount: number;
   date: string;
   assetId: string;

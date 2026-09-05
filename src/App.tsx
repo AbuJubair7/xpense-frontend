@@ -501,6 +501,7 @@ export default function App() {
     const assetId = incomeDraft.assetId || assets[0]?.id || '';
     if (!incomeDraft.source.trim() || !assetId || !amount || amount < 0) {
       setError('Complete the required income fields.');
+      setIsSubmitting(false);
       return;
     }
     try {
@@ -528,6 +529,7 @@ export default function App() {
     const assetId = expenseDraft.assetId || assets[0]?.id || '';
     if (!expenseDraft.title.trim() || !assetId || !amount || amount < 0) {
       setError('Complete the required expense fields.');
+      setIsSubmitting(false);
       return;
     }
     try {
@@ -536,7 +538,7 @@ export default function App() {
       } else {
         await api.createExpense({ title: expenseDraft.title.trim(), amount, category: expenseDraft.category, date: expenseDraft.date, description: expenseDraft.description, assetId });
       }
-      setExpenseDraft((draft) => ({ ...draft, id: '', title: '', amount: '', date: today(), description: '' }));
+      setExpenseDraft((draft) => ({ ...draft, id: '', title: '', amount: '', category: 'Food', date: today(), description: '' }));
       closeModal();
       setSuccessMessage(expenseDraft.id ? 'Expense updated successfully.' : 'Expense added successfully.');
       await refreshCurrentView();
@@ -554,6 +556,7 @@ export default function App() {
     const amount = Number(loanDraft.amount);
     if (!loanDraft.debtorName.trim() || !amount || amount < 0) {
       setError('Complete the required loan fields.');
+      setIsSubmitting(false);
       return;
     }
     try {
@@ -575,6 +578,7 @@ export default function App() {
     const amount = Number(borrowingDraft.amount);
     if (!borrowingDraft.lenderName.trim() || !amount || amount < 0) {
       setError('Complete the required borrowing fields.');
+      setIsSubmitting(false);
       return;
     }
     try {
@@ -961,7 +965,7 @@ export default function App() {
                                 if (item.kind === 'credit') {
                                   openEditIncome({ id: item.id, source: item.title, amount: item.amount, date: item.date, description: item.description || '', asset: { id: item.assetId, name: item.assetName, type: item.assetType, balance: 0 } } as Income);
                                 } else {
-                                  openEditExpense({ id: item.id, title: item.title, amount: item.amount, category: 'Others', date: item.date, description: item.description || '', asset: { id: item.assetId, name: item.assetName, type: item.assetType, balance: 0 } } as Expense);
+                                  openEditExpense({ id: item.id, title: item.title, amount: item.amount, category: item.category || 'Others', date: item.date, description: item.description || '', asset: { id: item.assetId, name: item.assetName, type: item.assetType, balance: 0 } } as Expense);
                                 }
                               }} aria-label={`Edit ${item.title}`}>
                                 <Pencil size={16} />
