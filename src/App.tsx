@@ -259,6 +259,7 @@ export default function App() {
 
   const [modal, setModal] = useState<Modal>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [assetDraft, setAssetDraft] = useState({ id: '', name: '', type: 'bank' as Asset['type'], balance: '' });
   const [incomeDraft, setIncomeDraft] = useState({ id: '', source: '', amount: '', date: today(), description: '', assetId: '' });
@@ -292,6 +293,12 @@ export default function App() {
 
   const [profileName, setProfileName] = useState(() => localStorage.getItem('profileName') || currentUser?.name || '');
   const [profileMessage, setProfileMessage] = useState('');
+
+  useEffect(() => {
+    if (!successMessage) return undefined;
+    const timer = setTimeout(() => setSuccessMessage(''), 3000);
+    return () => clearTimeout(timer);
+  }, [successMessage]);
 
   const handleLoadHistory = useCallback(async () => {
     const params = historyFilter === 'day'
@@ -416,7 +423,6 @@ export default function App() {
     setModal('asset');
   };
 
-  // @ts-ignore – will be used in Phase 3 (UI wiring)
   const openEditIncome = (income: Income) => {
     setIncomeDraft({
       id: income.id,
@@ -429,7 +435,6 @@ export default function App() {
     setModal('income');
   };
 
-  // @ts-ignore – will be used in Phase 3 (UI wiring)
   const openEditExpense = (expense: Expense) => {
     setExpenseDraft({
       id: expense.id,
@@ -499,12 +504,17 @@ export default function App() {
       return;
     }
     try {
-      await api.createIncome({ ...incomeDraft, source: incomeDraft.source.trim(), amount, assetId });
+      if (incomeDraft.id) {
+        await api.updateIncome(incomeDraft.id, { source: incomeDraft.source.trim(), amount, date: incomeDraft.date, description: incomeDraft.description, assetId });
+      } else {
+        await api.createIncome({ source: incomeDraft.source.trim(), amount, date: incomeDraft.date, description: incomeDraft.description, assetId });
+      }
       setIncomeDraft((draft) => ({ ...draft, id: '', source: '', amount: '', date: today(), description: '' }));
       closeModal();
+      setSuccessMessage(incomeDraft.id ? 'Income updated successfully.' : 'Income added successfully.');
       await refreshCurrentView();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to add income.');
+      setError(requestError instanceof Error ? requestError.message : 'Unable to save income.');
     } finally {
       setIsSubmitting(false);
     }
@@ -521,12 +531,17 @@ export default function App() {
       return;
     }
     try {
-      await api.createExpense({ ...expenseDraft, title: expenseDraft.title.trim(), amount, assetId });
+      if (expenseDraft.id) {
+        await api.updateExpense(expenseDraft.id, { title: expenseDraft.title.trim(), amount, category: expenseDraft.category, date: expenseDraft.date, description: expenseDraft.description, assetId });
+      } else {
+        await api.createExpense({ title: expenseDraft.title.trim(), amount, category: expenseDraft.category, date: expenseDraft.date, description: expenseDraft.description, assetId });
+      }
       setExpenseDraft((draft) => ({ ...draft, id: '', title: '', amount: '', date: today(), description: '' }));
       closeModal();
+      setSuccessMessage(expenseDraft.id ? 'Expense updated successfully.' : 'Expense added successfully.');
       await refreshCurrentView();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to add expense.');
+      setError(requestError instanceof Error ? requestError.message : 'Unable to save expense.');
     } finally {
       setIsSubmitting(false);
     }
@@ -855,6 +870,7 @@ export default function App() {
 
       <main className="main-content" aria-busy={loading}>
         {error && <div className="notice notice-error app-notice"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
+        {successMessage && <div className="notice notice-success app-notice"><span>{successMessage}</span><button type="button" onClick={() => setSuccessMessage('')} aria-label="Dismiss"><X size={16} /></button></div>}
 
         {page === 'dashboard' && (
           <>
@@ -940,9 +956,20 @@ export default function App() {
                             {formatMoney(item.amount, showBalances)}
                           </td>
                           <td>
-                            <button className="icon-button danger-button" type="button" onClick={() => void deleteActivity(item.id, item.kind)} aria-label={`Delete ${item.title}`}>
-                              <Trash2 size={16} />
-                            </button>
+                            <div className="table-actions">
+                              <button className="icon-button" type="button" onClick={() => {
+                                if (item.kind === 'credit') {
+                                  openEditIncome({ id: item.id, source: item.title, amount: item.amount, date: item.date, description: item.description || '', asset: { id: item.assetId, name: item.assetName, type: item.assetType, balance: 0 } } as Income);
+                                } else {
+                                  openEditExpense({ id: item.id, title: item.title, amount: item.amount, category: 'Others', date: item.date, description: item.description || '', asset: { id: item.assetId, name: item.assetName, type: item.assetType, balance: 0 } } as Expense);
+                                }
+                              }} aria-label={`Edit ${item.title}`}>
+                                <Pencil size={16} />
+                              </button>
+                              <button className="icon-button danger-button" type="button" onClick={() => void deleteActivity(item.id, item.kind)} aria-label={`Delete ${item.title}`}>
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1048,9 +1075,9 @@ export default function App() {
 
       {modal === 'asset' && <ModalShell title={assetDraft.id ? 'Edit account' : 'Add an account'} subtitle="Keep each balance separate and easy to reconcile." onClose={closeModal}><form className="modal-form" onSubmit={handleAsset}><label>Account name<input value={assetDraft.name} onChange={(event) => setAssetDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="e.g. City Bank" required /></label><label>Account type<select value={assetDraft.type} onChange={(event) => setAssetDraft((draft) => ({ ...draft, type: event.target.value as Asset['type'] }))}><option value="bank">Bank account</option><option value="wallet">Digital wallet</option><option value="on_hand">Cash on hand</option></select></label><label>Current balance<input type="number" min="0" step="0.01" value={assetDraft.balance} onChange={(event) => setAssetDraft((draft) => ({ ...draft, balance: event.target.value }))} placeholder="0.00" required /></label><footer className="modal-actions">{assetDraft.id ? <button className="button button-danger-quiet" type="button" onClick={() => void handleDeleteAsset()} disabled={isSubmitting}><Trash2 size={16} />Delete</button> : <span />}<div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />{assetDraft.id ? 'Saving' : 'Adding'}</> : (assetDraft.id ? 'Save changes' : 'Add account')}</button></div></footer></form></ModalShell>}
 
-      {modal === 'income' && <ModalShell title="Add income" subtitle="Record money coming into one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleIncome}><label>Income source<input value={incomeDraft.source} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, source: event.target.value }))} placeholder="e.g. Salary" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={incomeDraft.amount} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date<input type="date" value={incomeDraft.date} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Deposit account<select value={incomeDraft.assetId || assets[0]?.id || ''} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label>Notes <span>(optional)</span><input value={incomeDraft.description} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Adding</> : <><TrendingUp size={16} />Add income</>}</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Income needs an account destination." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
+      {modal === 'income' && <ModalShell title={incomeDraft.id ? 'Edit income' : 'Add income'} subtitle="Record money coming into one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleIncome}><label>Income source<input value={incomeDraft.source} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, source: event.target.value }))} placeholder="e.g. Salary" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={incomeDraft.amount} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date<input type="date" value={incomeDraft.date} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Deposit account<select value={incomeDraft.assetId || assets[0]?.id || ''} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label><label>Notes <span>(optional)</span><input value={incomeDraft.description} onChange={(event) => setIncomeDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />{incomeDraft.id ? 'Saving' : 'Adding'}</> : (incomeDraft.id ? 'Save changes' : <><TrendingUp size={16} />Add income</>)}</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Income needs an account destination." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
 
-      {modal === 'expense' && <ModalShell title="Add expense" subtitle="Record money leaving one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleExpense}><label>Expense title<input value={expenseDraft.title} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, title: event.target.value }))} placeholder="e.g. Weekly groceries" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={expenseDraft.amount} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Category<select value={expenseDraft.category} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, category: event.target.value }))}>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label></div><div className="form-two-column"><label>Date<input type="date" value={expenseDraft.date} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label><label>Paid from<select value={expenseDraft.assetId || assets[0]?.id || ''} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></div><label>Notes <span>(optional)</span><input value={expenseDraft.description} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Adding</> : <><TrendingDown size={16} />Add expense</>}</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Expenses need an account source." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
+      {modal === 'expense' && <ModalShell title={expenseDraft.id ? 'Edit expense' : 'Add expense'} subtitle="Record money leaving one of your accounts." onClose={closeModal}>{assets.length ? <form className="modal-form" onSubmit={handleExpense}><label>Expense title<input value={expenseDraft.title} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, title: event.target.value }))} placeholder="e.g. Weekly groceries" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={expenseDraft.amount} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Category<select value={expenseDraft.category} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, category: event.target.value }))}>{CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></label></div><div className="form-two-column"><label>Date<input type="date" value={expenseDraft.date} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label><label>Paid from<select value={expenseDraft.assetId || assets[0]?.id || ''} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, assetId: event.target.value }))} required>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></div><label>Notes <span>(optional)</span><input value={expenseDraft.description} onChange={(event) => setExpenseDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary button-expense" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />{expenseDraft.id ? 'Saving' : 'Adding'}</> : (expenseDraft.id ? 'Save changes' : <><TrendingDown size={16} />Add expense</>)}</button></div></footer></form> : <EmptyState icon={<Landmark size={22} />} title="Add an account first" copy="Expenses need an account source." action={<button className="button button-primary" type="button" onClick={() => { closeModal(); openNewAsset(); }}>Add account</button>} />}</ModalShell>}
 
       {modal === 'loan' && <ModalShell title="Record money lent" subtitle="Keep the person, amount, and date ready for follow-up." onClose={closeModal}><form className="modal-form" onSubmit={handleLoan}><label>Who owes you?<input value={loanDraft.debtorName} onChange={(event) => setLoanDraft((draft) => ({ ...draft, debtorName: event.target.value }))} placeholder="Person's name" required /></label><div className="form-two-column"><label>Amount<input type="number" min="0.01" step="0.01" value={loanDraft.amount} onChange={(event) => setLoanDraft((draft) => ({ ...draft, amount: event.target.value }))} placeholder="0.00" required /></label><label>Date lent<input type="date" value={loanDraft.date} onChange={(event) => setLoanDraft((draft) => ({ ...draft, date: event.target.value }))} required /></label></div><label>Notes <span>(optional)</span><input value={loanDraft.description} onChange={(event) => setLoanDraft((draft) => ({ ...draft, description: event.target.value }))} placeholder="Optional context" /></label><footer className="modal-actions"><span /><div><button className="button button-secondary" type="button" onClick={closeModal}>Cancel</button><button className="button button-primary" type="submit" disabled={isSubmitting}>{isSubmitting ? <><RefreshCw className="spin" size={16} />Recording</> : 'Record loan'}</button></div></footer></form></ModalShell>}
 
