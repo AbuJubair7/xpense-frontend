@@ -491,6 +491,7 @@ export default function App() {
     const assetId = incomeDraft.assetId || assets[0]?.id || '';
     if (!incomeDraft.source.trim() || !assetId || !amount || amount < 0) {
       setError('Complete the required income fields.');
+      setSuccessMessage('');
       setIsSubmitting(false);
       return;
     }
@@ -502,7 +503,7 @@ export default function App() {
       }
       setIncomeDraft((draft) => ({ ...draft, id: '', source: '', amount: '', date: today(), description: '' }));
       closeModal();
-      setError('');
+      setError(null);
       setSuccessMessage(incomeDraft.id ? 'Income updated successfully.' : 'Income added successfully.');
       await refreshCurrentView();
     } catch (requestError) {
@@ -520,6 +521,7 @@ export default function App() {
     const assetId = expenseDraft.assetId || assets[0]?.id || '';
     if (!expenseDraft.title.trim() || !assetId || !amount || amount < 0) {
       setError('Complete the required expense fields.');
+      setSuccessMessage('');
       setIsSubmitting(false);
       return;
     }
@@ -531,7 +533,7 @@ export default function App() {
       }
       setExpenseDraft((draft) => ({ ...draft, id: '', title: '', amount: '', category: 'Food', date: today(), description: '' }));
       closeModal();
-      setError('');
+      setError(null);
       setSuccessMessage(expenseDraft.id ? 'Expense updated successfully.' : 'Expense added successfully.');
       await refreshCurrentView();
     } catch (requestError) {
