@@ -184,6 +184,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .filter-label { display: inline-flex; align-items: center; gap: 7px; min-height: 35px; color: #53645a; font-size: .75rem; font-weight: 800; }
 .filter-field { display: grid; min-width: 135px; gap: 5px; color: #7d8a81; font-size: .62rem; font-weight: 800; letter-spacing: .055em; text-transform: uppercase; }
 .filter-field select, .filter-field input { min-height: 35px; padding: 0 9px; font-size: .76rem; letter-spacing: normal; text-transform: none; }
+.table-actions { display: flex; gap: 4px; }
 .table-panel { overflow: hidden; }
 .table-wrap { width: 100%; overflow-x: auto; }
 .data-table { width: 100%; min-width: 790px; border-collapse: collapse; text-align: left; }
