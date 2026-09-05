@@ -49,7 +49,7 @@ import {
 import { api, setAuthToken } from './api';
 import { useStore } from './store';
 import ChatbotOverlay from './ChatbotOverlay';
-import type { ActivityItem, ActivityResponse, Asset, Borrowing, Loan, PaginationMeta } from './api';
+import type { ActivityItem, ActivityResponse, Asset, Borrowing, Expense, Income, Loan, PaginationMeta } from './api';
 
 
 type Page = 'dashboard' | 'activity' | 'accounts' | 'debts' | 'insights' | 'profile';
@@ -261,8 +261,8 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [assetDraft, setAssetDraft] = useState({ id: '', name: '', type: 'bank' as Asset['type'], balance: '' });
-  const [incomeDraft, setIncomeDraft] = useState({ source: '', amount: '', date: today(), description: '', assetId: '' });
-  const [expenseDraft, setExpenseDraft] = useState({ title: '', amount: '', category: 'Food', date: today(), description: '', assetId: '' });
+  const [incomeDraft, setIncomeDraft] = useState({ id: '', source: '', amount: '', date: today(), description: '', assetId: '' });
+  const [expenseDraft, setExpenseDraft] = useState({ id: '', title: '', amount: '', category: 'Food', date: today(), description: '', assetId: '' });
   const [loanDraft, setLoanDraft] = useState({ debtorName: '', amount: '', date: today(), description: '' });
   const [borrowingDraft, setBorrowingDraft] = useState({ lenderName: '', amount: '', date: today(), description: '' });
 
@@ -416,6 +416,33 @@ export default function App() {
     setModal('asset');
   };
 
+  // @ts-ignore – will be used in Phase 3 (UI wiring)
+  const openEditIncome = (income: Income) => {
+    setIncomeDraft({
+      id: income.id,
+      source: income.source,
+      amount: String(income.amount),
+      date: income.date,
+      description: income.description || '',
+      assetId: income.asset.id,
+    });
+    setModal('income');
+  };
+
+  // @ts-ignore – will be used in Phase 3 (UI wiring)
+  const openEditExpense = (expense: Expense) => {
+    setExpenseDraft({
+      id: expense.id,
+      title: expense.title,
+      amount: String(expense.amount),
+      category: expense.category,
+      date: expense.date,
+      description: expense.description || '',
+      assetId: expense.asset.id,
+    });
+    setModal('expense');
+  };
+
 
   async function refreshCurrentView() {
     await loadOverview();
@@ -473,7 +500,7 @@ export default function App() {
     }
     try {
       await api.createIncome({ ...incomeDraft, source: incomeDraft.source.trim(), amount, assetId });
-      setIncomeDraft((draft) => ({ ...draft, source: '', amount: '', date: today(), description: '' }));
+      setIncomeDraft((draft) => ({ ...draft, id: '', source: '', amount: '', date: today(), description: '' }));
       closeModal();
       await refreshCurrentView();
     } catch (requestError) {
@@ -495,7 +522,7 @@ export default function App() {
     }
     try {
       await api.createExpense({ ...expenseDraft, title: expenseDraft.title.trim(), amount, assetId });
-      setExpenseDraft((draft) => ({ ...draft, title: '', amount: '', date: today(), description: '' }));
+      setExpenseDraft((draft) => ({ ...draft, id: '', title: '', amount: '', date: today(), description: '' }));
       closeModal();
       await refreshCurrentView();
     } catch (requestError) {

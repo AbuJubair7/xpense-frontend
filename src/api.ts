@@ -216,6 +216,8 @@ export const api = {
   getIncome: () => request<Income[]>('/income'),
   createIncome: (data: { source: string; amount: number; date: string; description?: string; assetId: string }) => 
     request<Income>('/income', { method: 'POST', body: JSON.stringify(data) }),
+  updateIncome: (id: string, data: Partial<Income>) => 
+    request<Income>(`/income/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteIncome: (id: string) => 
     request<void>(`/income/${id}`, { method: 'DELETE' }),
 
@@ -223,6 +225,8 @@ export const api = {
   getExpenses: () => request<Expense[]>('/expenses'),
   createExpense: (data: { title: string; amount: number; category: string; date: string; description?: string; assetId: string }) => 
     request<Expense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  updateExpense: (id: string, data: Partial<Expense>) => 
+    request<Expense>(`/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteExpense: (id: string) => 
     request<void>(`/expenses/${id}`, { method: 'DELETE' }),
 
